@@ -3,14 +3,15 @@
 `DM OpenArm` 是面向达妙电机机械臂的控制库（C++17 + Python）。  
 底层通信栈与工位实测可用的 `resources/u2canfd` **对齐**：`libdm_device.so`（dmcan API）+ **经典 CAN 1 Mbps**。
 
-当前只封装 **MIT 模式**：
+当前封装 **MIT 模式**，并支持 **重力前馈**（`tau_ff`）：
 
-- C++：打开设备、发 MIT 帧、读反馈、1 kHz 后台循环
-- Python：`Arm` 高层 API（使能、状态、MIT 目标、设零）
-- 配置：`dm_openarm/config/arm_5dof.yaml`
+- C++：打开设备、发 MIT 帧、读反馈、1 kHz 后台循环（可叠加 \(g(q)\)）
+- Python：`Arm` 高层 API（使能、状态、MIT、设零、重力开关/比例）
+- 配置：`dm_openarm/config/arm_5dof.yaml`（含工位辨识后的 gravity 段）
 
 更细的包内说明见 [`dm_openarm/README.md`](dm_openarm/README.md)。  
-工位硬件实测记录见 [`resources/u2canfd/HARDWARE_CONFIG.md`](resources/u2canfd/HARDWARE_CONFIG.md)。
+工位硬件实测记录见 [`resources/u2canfd/HARDWARE_CONFIG.md`](resources/u2canfd/HARDWARE_CONFIG.md)。  
+重力原始拟合结果备份见仓库根目录 [`gravity_identified.yaml`](gravity_identified.yaml)。
 
 ## 目录结构
 
@@ -60,7 +61,140 @@ usb:
   canfd: false
   brs: false
   device_index: 0
+
+gravity:
+  enabled: true
+  scale: 0.9          # 默认略欠补偿，软刚度下更稳
+  use_measured_q: true
+  joints:             # 与 motors[] 顺序一致
+    - { amp: ..., phase: ..., bias: ... }  # 每轴一项
 ```
+
+## 重力补偿（工位现状）
+
+### 模型
+
+MIT 下发力矩为：
+
+\[
+\tau_{\text{sent}} = k_p(q_{\text{des}}-q) + k_d(\dot q_{\text{des}}-\dot q) + \tau_{\text{cmd}} + s\cdot\hat\tau_g(q)
+\]
+
+每轴解耦模型（便于辨识）：
+
+\[
+\hat\tau_{g,i} = a_i\sin(q_i+\phi_i) + b_i
+\]
+
+- \(a\) = `amp`，\(\phi\) = `phase`，\(b\) = `bias`，单位 N·m / rad  
+- \(s\) = YAML / API 中的 `scale`  
+- loop 内：`tau_sent = cmd.tau + scale * g(q)`  
+- 软保持时建议锁定姿态后用 **目标角** \(q_{\text{des}}\) 算 \(g\)（避免下沉正反馈）；跟手移动时可用测量角
+
+### 工位辨识结果（2026-07-20，已写入配置）
+
+空载、当前机械零位下辨识；**近端承力、远端很小**（与实机观察一致）：
+
+| CAN ID | 名称 | amp (N·m) | phase (rad) | bias (N·m) | 说明 |
+| --- | --- | --- | --- | --- | --- |
+| `0x01` | end_effector | 0.230 | -2.212 | 0.140 | 末端重力较小 |
+| `0x02` | wrist_2 | **0** | 0 | 0 | 结构上几乎不扛重力 |
+| `0x03` | wrist_3 | **0** | 0 | 0 | 同上 |
+| `0x04` | elbow | **2.932** | -0.015 | 0.072 | 主要承力 |
+| `0x05` | shoulder | **3.395** | -0.045 | 0.145 | 最大 |
+
+配置中默认 `gravity.enabled: true`，`scale: **0.9**`（略欠补偿：软 `kp` 下过补偿会顶过头/过冲）。
+
+原始拟合备份：`gravity_identified.yaml`（0x02/0x03 拟合本就接近 0，配置里写成显式 0）。
+
+### 验收结论（当前）
+
+| 项 | 状态 |
+| --- | --- |
+| 通信 / 使能 / 读状态 | 可用（dmcan + 经典 CAN 1M） |
+| 重力前馈整体效果 | **可用**（肩肘能明显托住） |
+| 个别姿态 | 仍可能慢沉或过冲（解耦模型 + 软刚度） |
+| 调参方向 | 过冲 → 降 `scale`；慢沉 → 略升 `scale` 或略加 `kp`/`kd` |
+
+### 辨识流程（换零位或换空载结构后重做）
+
+```bash
+source .venv/bin/activate
+pip install -e ./dm_openarm
+
+# 1) 机械摆到期望零位后设零（写 flash）
+python -c "
+from dm_openarm import Arm
+import time
+arm = Arm.from_yaml('dm_openarm/config/arm_5dof.yaml')
+arm.enable()
+arm.set_zero_all(persist=True)
+arm.disable()
+"
+
+# 2) 交互辨识
+python python_script/identify_gravity.py
+```
+
+辨识脚本命令：
+
+| 命令 | 含义 |
+| --- | --- |
+| `u` | 解锁跟手（**双手托住**再掰） |
+| `l` | 锁定当前角（可松手检查） |
+| `Enter` | 在**已锁定目标**上加硬采样（不改目标角，避免突然松弛） |
+| `f` | 拟合并写入 `gravity_identified.yaml` |
+| `q` | 放弃 |
+
+要点：
+
+- 以整臂姿态扫工作空间即可，**不必**每次只拧一轴，但**每个关节角都要有大范围样本**（尤其 0x04/0x05）  
+- 每点**停稳**再锁、再采；肩肘要覆盖大角度  
+- 拟合后把 `gravity:` 段合并进 `arm_5dof.yaml`（或直接用仓库已合并版本）
+
+### 软保持试跑
+
+```bash
+# 默认 scale=0.9
+python python_script/hold_with_gravity.py
+
+# 仍下沉
+python python_script/hold_with_gravity.py --scale 1.0
+
+# 个别点过冲 / 顶过头
+python python_script/hold_with_gravity.py --scale 0.8
+```
+
+用法：启动后锁定当前姿态 → **托着**移到新姿态 → 停约 0.4s 见 `[锁定]` → 再松手。  
+Ctrl+C 退出。
+
+### 末端加负载后是否要重标定？
+
+**要。** 当前 \(a,b\) 对应**空载**质量分布。末端加工具/工件后：
+
+\[
+\Delta\tau_i(q)\propto m_{\text{payload}}\cdot g\cdot \ell_i(q)
+\]
+
+肩、肘变化最大；腕部仍可能接近 0。
+
+| 情况 | 建议 |
+| --- | --- |
+| 固定一种负载 | **带该负载**再跑 `identify_gravity.py`，更新 YAML |
+| 几种已知负载 | 多套 `gravity` 配置或按工具切换 |
+| 负载常变/未知 | 需在线估计或力传感；单次空载标定不够 |
+| 临时凑合 | 可略调 `scale`，个别姿态仍会差 |
+
+换工具 = 改 \(g(q)\)，不是通信问题。
+
+### 软刚度与补偿误差
+
+软 `kp` 时闭环几乎不“硬顶”，残差 \(\tau_{\text{true}}-s\hat\tau_g\) 会直接变成漂移/过冲：
+
+- **欠补偿** → 慢沉（更安全）  
+- **过补偿** → 往上顶、过冲（危险）  
+
+因此默认 `scale=0.9`。长期要“更软又更准”，需要更好的 \(g(q)\)（耦合项/多姿态残差），而不是只拧 `kp`。
 
 ## 单位约定
 
@@ -107,11 +241,14 @@ source .venv/bin/activate
 # 1) 联通：MIT 全 0，不回零
 python python_script/link_test.py
 
-# 2) 读状态
+# 2) 读状态（Ctrl+C 退出）
 python python_script/read_states.py
 
 # 3) 使能/失能
 python python_script/enable_disable.py
+
+# 4) 重力软保持（需已写入 gravity 参数；Ctrl+C 退出）
+python python_script/hold_with_gravity.py
 ```
 
 C++ 联通检查：
