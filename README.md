@@ -150,9 +150,11 @@ finally:
 | 脚本 | 作用 |
 | --- | --- |
 | `python_script/link_test.py` | 联通测试（MIT 全 0，不回零） |
-| `python_script/read_states.py` | 刷新反馈后打印各轴状态 |
+| `python_script/read_states.py` | 持续打印各轴状态（Ctrl+C 退出） |
 | `python_script/enable_disable.py` | 使能后等待回车再失能 |
 | `python_script/mit_control_one_motor.py` | 启动 MIT loop 并驱动单轴（会运动） |
+| `python_script/identify_gravity.py` | 交互采样姿态，拟合 gravity YAML |
+| `python_script/hold_with_gravity.py` | 重力前馈 + 软刚度保持当前姿态 |
 
 ## Python API：`Arm`
 

@@ -121,3 +121,4 @@ python_script/                   # 独立 Python 脚本
 - YAML：`gravity.enabled / scale / use_measured_q / joints[]`
 - Python：`set_gravity_enabled`、`set_gravity_scale`、`gravity_torques`；`start_mit_loop(home=False)` 支持不回零保持
 - 示例：`python_script/hold_with_gravity.py`
+- 辨识：`python_script/identify_gravity.py` + `dm_openarm.gravity_fit`（线性 LS 拟合 amp/phase/bias，输出 YAML）
