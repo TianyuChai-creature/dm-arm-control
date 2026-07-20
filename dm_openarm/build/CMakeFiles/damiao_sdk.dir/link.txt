@@ -1,2 +1,0 @@
-/usr/bin/ar qc libdamiao_sdk.a CMakeFiles/damiao_sdk.dir/third_party/damiao_sdk/src/protocol/damiao.cpp.o
-/usr/bin/ranlib libdamiao_sdk.a

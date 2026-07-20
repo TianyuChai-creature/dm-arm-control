@@ -1,556 +1,618 @@
 #include "protocol/damiao.h"
 
+#include <stdexcept>
+#include <thread>
+#include <unistd.h>
+#include <unordered_set>
+
 namespace damiao
-{    
+{
 
 namespace
 {
 Control_Mode_Code toControlModeCode(Control_Mode mode)
 {
-    switch (mode)
-    {
-    case MIT_MODE:
-        return MIT;
-    case POS_VEL_MODE:
-        return POS_VEL;
-    case VEL_MODE:
-        return VEL;
-    case POS_FORCE_MODE:
-        return POS_FORCE;
-    default:
-        return MIT;
-    }
+  switch(mode)
+  {
+  case MIT_MODE:
+    return MIT;
+  case POS_VEL_MODE:
+    return POS_VEL;
+  case VEL_MODE:
+    return VEL;
+  case POS_FORCE_MODE:
+    return POS_FORCE;
+  default:
+    return MIT;
+  }
 }
+
+// Map device handle -> owner for C recv callback (single-process multi-instance safe).
+std::mutex g_owner_mu;
+std::unordered_map<dmcan_device_handle*, Motor_Control*> g_owners;
+
+uint8_t dlc_to_len(uint8_t dlc)
+{
+  switch(dlc)
+  {
+  case 9:
+    return 12;
+  case 10:
+    return 16;
+  case 11:
+    return 20;
+  case 12:
+    return 24;
+  case 13:
+    return 32;
+  case 14:
+    return 48;
+  case 15:
+    return 64;
+  default:
+    return dlc > 8 ? 8 : dlc;
+  }
 }
-     
-Limit_param limit_param[Num_Of_Motor]=
-{       
-        {12.566, 50, 5},   // DM3507         check 
-        {12.5, 30, 10},   // DM4310          check
-        {12.5, 50, 10},   // DM4310_48V
-        {12.5, 10, 28},   // DM4340          check
-        {12.5, 20, 28},   // DM4340_48V      check
-        {12.5, 45, 12},   // DM6006          check
-        {12.566, 20, 120},   // DM6248       check
-        {12.5, 45, 20},   // DM8006          check
-        {12.5, 45, 54},   // DM8009          check
-        {12.5, 25, 200},  // DM10010L        check
-        {12.5, 20, 200},  // DM10010         check
-        {12.5, 280, 1},   // DMH3510         check
-        {12.5, 45, 10},   // DMH6215
-        {12.5, 2000, 2},    // DMS3519         check
-        {12.5, 45, 10}    // DMG6220         check
+}  // namespace
+
+Limit_param limit_param[Num_Of_Motor] = {
+  {12.566f, 50, 5},     // DM3507
+  {12.5f, 30, 10},      // DM4310
+  {12.5f, 50, 10},      // DM4310_48V
+  {12.5f, 10, 28},      // DM4340
+  {12.5f, 20, 28},      // DM4340_48V
+  {12.5f, 45, 12},      // DM6006
+  {12.566f, 20, 120},   // DM6248
+  {12.5f, 45, 20},      // DM8006
+  {12.5f, 45, 54},      // DM8009
+  {12.5f, 25, 200},     // DM10010L
+  {12.5f, 20, 200},     // DM10010
+  {12.5f, 280, 1},      // DMH3510
+  {12.5f, 45, 10},      // DMH6215
+  {12.5f, 2000, 2},     // DMS3519
+  {12.5f, 45, 10}       // DMG6220
 };
-            
-Motor::Motor(DM_Motor_Type motor_type, Control_Mode ctrl_mode,uint16_t can_id, uint16_t master_id)
-        :  Motor_Type(motor_type),mode(ctrl_mode),Master_id(master_id), Can_id(can_id){
-    this->limit_param = damiao::limit_param[motor_type];
-    this->last_time_= std::chrono::steady_clock::now();
-}
 
-void Motor::updateTimeInterval() 
+Motor::Motor(DM_Motor_Type motor_type, Control_Mode ctrl_mode, uint16_t can_id, uint16_t master_id,
+             uint8_t channel)
+  : Can_id(can_id)
+  , Master_id(master_id)
+  , Motor_Type(motor_type)
+  , mode(ctrl_mode)
+  , channel_(channel)
 {
-    auto now = std::chrono::steady_clock::now();
-    std::chrono::duration<double> dt = now - last_time_;
-    last_time_ = now;
-
-    delta_time_ = dt.count(); // 秒为单位
+  this->limit_param = damiao::limit_param[motor_type];
+  this->last_time_ = std::chrono::steady_clock::now();
 }
 
-double Motor::getTimeInterval() 
+void Motor::updateTimeInterval()
 {
-    return delta_time_;
+  auto now = std::chrono::steady_clock::now();
+  std::chrono::duration<double> dt = now - last_time_;
+  last_time_ = now;
+  delta_time_ = dt.count();
 }
 
+double Motor::getTimeInterval()
+{
+  return delta_time_;
+}
 
 void Motor::receive_data(float q, float dq, float tau)
 {
-    this->state_q = q;
-    this->state_dq = dq;
-    this->state_tau = tau;
+  this->state_q = q;
+  this->state_dq = dq;
+  this->state_tau = tau;
 }
 
 void Motor::set_param(int key, float value)
 {
-    ValueType v{};
-    v.value.floatValue = value;
-    v.isFloat = true;
-    param_map[key] = v;
+  ValueType v{};
+  v.value.floatValue = value;
+  v.isFloat = true;
+  param_map[key] = v;
 }
 
 void Motor::set_param(int key, uint32_t value)
 {
-    ValueType v{};
-    v.value.uint32Value = value;
-    v.isFloat = false;
-    param_map[key] = v;
+  ValueType v{};
+  v.value.uint32Value = value;
+  v.isFloat = false;
+  param_map[key] = v;
 }
 
 float Motor::get_param_as_float(int key) const
 {
-    auto it = param_map.find(key);
-    if (it != param_map.end())
-    {
-        if (it->second.isFloat)
-        {
-            return it->second.value.floatValue;
-        }
-        else
-        {
-            return 0;
-        }
-    }
-    return 0;
+  auto it = param_map.find(key);
+  if(it != param_map.end() && it->second.isFloat)
+  {
+    return it->second.value.floatValue;
+  }
+  return 0;
 }
 
-uint32_t Motor::get_param_as_uint32(int key) const 
+uint32_t Motor::get_param_as_uint32(int key) const
 {
-    auto it = param_map.find(key);
-    if (it != param_map.end()) {
-        if (!it->second.isFloat) {
-            return it->second.value.uint32Value;
-        }
-        else
-        {
-            return 0;
-        }
-    }
-    return 0;
+  auto it = param_map.find(key);
+  if(it != param_map.end() && !it->second.isFloat)
+  {
+    return it->second.value.uint32Value;
+  }
+  return 0;
 }
 
 bool Motor::is_have_param(int key) const
 {
-    return param_map.find(key) != param_map.end();
+  return param_map.find(key) != param_map.end();
 }
 
-/******一个can，一个Motor_Control**********************/
-Motor_Control::Motor_Control(uint32_t nom_baud,uint32_t dat_baud,std::string sn,
-    std::vector<DmActData> *data_ptr)
-    :  data_ptr_(data_ptr)
+Motor_Control::Motor_Control(uint32_t nom_baud, uint32_t dat_baud, std::string sn,
+                             std::vector<DmActData>* data_ptr, bool canfd, bool brs,
+                             int device_index, bool auto_enable, dmcan_device_type device_type)
+  : data_ptr_(data_ptr)
+  , canfd_(canfd)
+  , brs_(brs)
+  , nom_baud_(nom_baud)
+  , dat_baud_(dat_baud)
+  , sn_(std::move(sn))
 {
-    for (auto it = data_ptr_->begin(); it != data_ptr_->end(); ++it) 
-    {//遍历该bus下的所有电机
-     std::shared_ptr<Motor> motor = std::make_shared<Motor>(it->motorType,it->mode,it->can_id, it->mst_id);
-     addMotor(motor);
+  if(data_ptr_ == nullptr)
+  {
+    throw std::invalid_argument("Motor_Control: data_ptr is null");
+  }
+
+  for(const auto& act : *data_ptr_)
+  {
+    addMotor(std::make_shared<Motor>(act.motorType, act.mode, act.can_id, act.mst_id, act.channel));
+  }
+
+  dmcan_context_create(&ctx_);
+  if(ctx_ == nullptr)
+  {
+    throw std::runtime_error("Motor_Control: dmcan_context_create failed");
+  }
+
+  const int dev_count = dmcan_find_devices_with_type(ctx_, static_cast<int>(device_type));
+  if(dev_count <= 0)
+  {
+    close_device();
+    throw std::runtime_error("Motor_Control: no dmcan device found");
+  }
+  if(device_index < 0 || device_index >= dev_count)
+  {
+    close_device();
+    throw std::runtime_error("Motor_Control: device_index out of range");
+  }
+
+  if(!dmcan_device_get(ctx_, &device_, device_index) || device_ == nullptr)
+  {
+    close_device();
+    throw std::runtime_error("Motor_Control: dmcan_device_get failed");
+  }
+  if(!dmcan_device_open(device_))
+  {
+    close_device();
+    throw std::runtime_error("Motor_Control: failed to open dmcan device");
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(g_owner_mu);
+    g_owners[device_] = this;
+  }
+  dmcan_device_hook_recv_callback(device_, &Motor_Control::recv_callback_thunk);
+
+  std::unordered_set<uint8_t> channels;
+  for(const auto& m : unique_motors())
+  {
+    channels.insert(m->GetChannel());
+  }
+  if(channels.empty())
+  {
+    channels.insert(0);
+  }
+
+  for(uint8_t ch : channels)
+  {
+    dmcan_channel_can_info info{};
+    info.channel = ch;
+    info.canfd = canfd_;
+    info.can_baudrate = nom_baud_;
+    info.canfd_baudrate = dat_baud_;
+    info.can_sp = 0.75f;
+    info.canfd_sp = 0.75f;
+    if(!dmcan_device_set_channel_baudrate(device_, ch, info))
+    {
+      close_device();
+      throw std::runtime_error("Motor_Control: set_channel_baudrate failed");
     }
+    dmcan_device_enable_channel(device_, ch);
+  }
 
-    usb_hw = std::make_shared<usb_class>(nom_baud,dat_baud,sn);
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    usb_hw->setFrameCallback(
-        [this](can_value_type& val) {
-            this->canframeCallback(val);
-        });
-   
-    std::this_thread::sleep_for(std::chrono::milliseconds(200));
-   
-    enable_all();//使能该接口下的所有电机
+  std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
-    std::cout<<"**********Motor_Control initialization successful**********"<<std::endl<<std::endl;
+  if(auto_enable)
+  {
+    enable_all();
+  }
+
 }
 
 Motor_Control::~Motor_Control()
-{   
-    std::cout<<"Enter ~Motor_Control"<<std::endl;
-   
-    disable_all();//使能该接口下的所有电机
+{
+  try
+  {
+    disable_all();
+  }
+  catch(...)
+  {
+  }
+  close_device();
 }
 
-/**
- * @brief add motor to class 添加电机
- * @param DM_Motor : motor object 电机对象
- */
+void Motor_Control::close_device()
+{
+  if(closed_)
+  {
+    return;
+  }
+  closed_ = true;
+
+  // Drop RX ownership first so in-flight callbacks become no-ops.
+  if(device_ != nullptr)
+  {
+    {
+      std::lock_guard<std::mutex> lock(g_owner_mu);
+      g_owners.erase(device_);
+    }
+
+    std::unordered_set<uint8_t> channels;
+    for(const auto& m : unique_motors())
+    {
+      channels.insert(m->GetChannel());
+    }
+    if(channels.empty())
+    {
+      channels.insert(0);
+    }
+    for(uint8_t ch : channels)
+    {
+      dmcan_device_disable_channel(device_, ch);
+    }
+    device_ = nullptr;
+  }
+
+  // On this host, calling both dmcan_device_close and dmcan_context_destroy triggers a
+  // libusb mutex assert (same class of issue as u2canfd/test_link.py skipping full close).
+  // Destroying the context alone tears down devices safely.
+  if(ctx_ != nullptr)
+  {
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    dmcan_context_destroy(ctx_);
+    ctx_ = nullptr;
+  }
+}
+
+void Motor_Control::recv_callback_thunk(dmcan_device_handle* handle, usb_rx_frame* frame)
+{
+  if(handle == nullptr || frame == nullptr)
+  {
+    return;
+  }
+  Motor_Control* owner = nullptr;
+  {
+    std::lock_guard<std::mutex> lock(g_owner_mu);
+    auto it = g_owners.find(handle);
+    if(it != g_owners.end())
+    {
+      owner = it->second;
+    }
+  }
+  if(owner != nullptr)
+  {
+    owner->on_rx_frame(*frame);
+  }
+}
+
 void Motor_Control::addMotor(std::shared_ptr<Motor> DM_Motor)
 {
-    motors.insert({DM_Motor->GetCanId(), DM_Motor});
-    motors.insert({DM_Motor->GetMasterId(), DM_Motor});
+  motors.insert({DM_Motor->GetCanId(), DM_Motor});
+  motors.insert({DM_Motor->GetMasterId(), DM_Motor});
+}
+
+std::vector<std::shared_ptr<Motor>> Motor_Control::unique_motors() const
+{
+  std::vector<std::shared_ptr<Motor>> out;
+  std::unordered_set<uint16_t> seen;
+  for(const auto& kv : motors)
+  {
+    const auto& motor = kv.second;
+    if(motor == nullptr)
+    {
+      continue;
+    }
+    if(seen.insert(motor->GetCanId()).second)
+    {
+      out.push_back(motor);
+    }
+  }
+  return out;
+}
+
+bool Motor_Control::send_can(uint8_t channel, uint32_t can_id, const uint8_t* data, uint8_t len)
+{
+  if(device_ == nullptr || closed_)
+  {
+    return false;
+  }
+  return dmcan_device_send_can(device_, channel, can_id, canfd_, false, false, brs_, len, data);
 }
 
 void Motor_Control::enable_all()
-{   
-    // uint8_t data[4]={9,0,0,0};
-    // for(auto& it : motors)
-    // {   
-    //     for(int j=0;j<5;j++)
-    //     {
-    //         write_motor_param(*(it.second),0x23,data);
-    //         usleep(2000);
-    //     }
-    // }
-    // for(auto& it : motors)
-    // {   
-    //     for(int j=0;j<5;j++)
-    //     {
-    //         save_motor_param(*(it.second));
-    //         usleep(2000);
-    //     }
-    // }
-    // for(auto& it : motors)
-    // {   
-    //     for(int j=0;j<5;j++)
-    //     {
-    //         set_zero_position(*(it.second));
-    //         usleep(2000);
-    //     }
-    // }
-    for(auto& it : motors)
-    {   
-      switchControlMode(*(it.second), toControlModeCode(it.second->GetMotorMode()));
+{
+  for(const auto& motor : unique_motors())
+  {
+    switchControlMode(*motor, toControlModeCode(motor->GetMotorMode()));
+    usleep(2000);
+  }
+  for(const auto& motor : unique_motors())
+  {
+    for(int j = 0; j < 5; ++j)
+    {
+      control_cmd(static_cast<uint16_t>(motor->GetCanId() + motor->GetMotorMode()), 0xFC,
+                  motor->GetChannel());
       usleep(2000);
     }
-     for(auto& it : motors)
-     {   
-         for(int j=0;j<5;j++)
-        {
-         read_motor_param(*(it.second),10);
-         usleep(2000);
-        }
-     }
-     for(auto& it : motors)
-     {  
-        uint32_t parm=it.second->get_param_as_uint32(10);
-        std::cerr<<"id: "<<it.first<<" mode is: "<<parm<<std::endl;
-     }
-    for(auto& it : motors)
-    {   
-       for(int j=0;j<5;j++)
-       {
-        control_cmd(it.second->GetCanId()+it.second->GetMotorMode(), 0xFC);
-        usleep(2000);
-       }
-    }
-    
+  }
 }
 
 void Motor_Control::disable_all()
 {
-    for(auto& it : motors)//总线有1个电机会注册两对
-    {   
-        for(int j=0;j<5;j++)
-        {
-         control_cmd(it.second->GetCanId()+it.second->GetMotorMode(), 0xFD);
-         usleep(2000);
-        }
-    }  
+  for(const auto& motor : unique_motors())
+  {
+    for(int j = 0; j < 5; ++j)
+    {
+      control_cmd(static_cast<uint16_t>(motor->GetCanId() + motor->GetMotorMode()), 0xFD,
+                  motor->GetChannel());
+      usleep(2000);
+    }
+  }
 }
 
-/*
-    * @description: read motor register param 读取电机内部寄存器参数，具体寄存器列表请参考达妙的手册
-    * @param DM_Motor: motor object 电机对象
-    * @param RID: register id 寄存器ID  example: damiao::UV_Value
-    * @return: motor param 电机参数 如果没查询到返回的参数为0
-    */
-float Motor_Control::read_motor_param(Motor &DM_Motor,uint8_t RID)
+float Motor_Control::read_motor_param(Motor& DM_Motor, uint8_t RID)
 {
-    read_write_save=true;//发送读参数命令，返回的数据和常规返回的不一样，需要单独处理
-    uint16_t id = DM_Motor.GetCanId();
-    uint8_t id_low = id & 0xff;
-    uint8_t id_high = (id >> 8) & 0xff;
-
-    std::vector<uint8_t> mydata = {id_low, id_high, 0x33, RID, 0x00, 0x00, 0x00, 0x00};
-    usb_hw->fdcanFrameSend(mydata, 0x7FF);
-    usleep(2000);
-    return 0;
+  read_write_save = true;
+  const uint16_t id = DM_Motor.GetCanId();
+  const uint8_t payload[8] = {static_cast<uint8_t>(id & 0xff), static_cast<uint8_t>((id >> 8) & 0xff),
+                              0x33, RID, 0x00, 0x00, 0x00, 0x00};
+  send_can(DM_Motor.GetChannel(), 0x7FF, payload, 8);
+  usleep(2000);
+  return 0;
 }
 
-/*
-    * @description: save all param to motor flash 保存电机的所有参数到flash里面
-    * @param DM_Motor: motor object 电机对象
-    * 电机默认参数不会写到flash里面，需要进行写操作
-    */
-void Motor_Control::save_motor_param(Motor &DM_Motor)
+void Motor_Control::save_motor_param(Motor& DM_Motor)
 {
-    uint16_t id = DM_Motor.GetCanId();
-    uint16_t mode=DM_Motor.GetMotorMode();
-    control_cmd(id+mode, 0xFD);//失能
-    usleep(10000);
-    read_write_save=true;//发送保存参数命令，返回的数据和常规返回的不一样，需要单独处理
-
-    uint8_t id_low = id & 0xff;
-    uint8_t id_high = (id >> 8) & 0xff;
-
-    std::vector<uint8_t> mydata = {id_low, id_high, 0xAA, 0x01, 0x00, 0x00, 0x00, 0x00};
-    usb_hw->fdcanFrameSend(mydata, 0x7FF);
-    usleep(100000);
+  const uint16_t id = DM_Motor.GetCanId();
+  const uint16_t mode = DM_Motor.GetMotorMode();
+  control_cmd(static_cast<uint16_t>(id + mode), 0xFD, DM_Motor.GetChannel());
+  usleep(10000);
+  read_write_save = true;
+  const uint8_t payload[8] = {static_cast<uint8_t>(id & 0xff), static_cast<uint8_t>((id >> 8) & 0xff),
+                              0xAA, 0x01, 0x00, 0x00, 0x00, 0x00};
+  send_can(DM_Motor.GetChannel(), 0x7FF, payload, 8);
+  usleep(100000);
 }
 
-//读电机反馈命令
 void Motor_Control::refresh_motor_status(Motor& motor)
 {
-    uint8_t id_low = motor.GetCanId() & 0xff; // id low 8 bit
-    uint8_t id_high = (motor.GetCanId() >> 8) & 0xff; //id high 8 bit
-
-    std::vector<uint8_t> mydata = {id_low, id_high, 0xCC, 0x00};
-    usb_hw->fdcanFrameSend(mydata, 0x7FF);
+  const uint8_t payload[4] = {static_cast<uint8_t>(motor.GetCanId() & 0xff),
+                              static_cast<uint8_t>((motor.GetCanId() >> 8) & 0xff), 0xCC, 0x00};
+  send_can(motor.GetChannel(), 0x7FF, payload, 4);
 }
 
-void Motor_Control::control_cmd(uint16_t id , uint8_t cmd)
+void Motor_Control::control_cmd(uint16_t id, uint8_t cmd, uint8_t channel)
 {
-    std::vector<uint8_t> mydata = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, cmd};
-    usb_hw->fdcanFrameSend(mydata, id);
+  const uint8_t payload[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, cmd};
+  send_can(channel, id, payload, 8);
 }
 
-void Motor_Control::write_motor_param(Motor &DM_Motor,uint8_t RID,const uint8_t data[4])
-{   
-    read_write_save=true;//发送写参数命令，返回的数据和常规返回的不一样，需要单独处理
-
-    uint16_t id = DM_Motor.GetCanId();
-    uint8_t id_low = id & 0xff;
-    uint8_t id_high = (id >> 8) & 0xff;
-
-    std::vector<uint8_t> mydata = {id_low, id_high, 0x55, RID, data[0], data[1], data[2], data[3]};
-    usb_hw->fdcanFrameSend(mydata, 0x7FF);
-}
-
-void Motor_Control::set_zero_position(Motor &DM_Motor)
+void Motor_Control::write_motor_param(Motor& DM_Motor, uint8_t RID, const uint8_t data[4])
 {
-    control_cmd(DM_Motor.GetCanId()+DM_Motor.GetMotorMode(), 0xFE);
+  read_write_save = true;
+  const uint16_t id = DM_Motor.GetCanId();
+  const uint8_t payload[8] = {static_cast<uint8_t>(id & 0xff), static_cast<uint8_t>((id >> 8) & 0xff),
+                              0x55, RID, data[0], data[1], data[2], data[3]};
+  send_can(DM_Motor.GetChannel(), 0x7FF, payload, 8);
 }
 
-void Motor_Control::control_mit(Motor &DM_Motor, float kp, float kd, float q, float dq, float tau)
+void Motor_Control::set_zero_position(Motor& DM_Motor)
 {
-    // 位置、速度和扭矩采用线性映射的关系将浮点型数据转换成有符号的定点数据
-    static auto float_to_uint = [](float x, float xmin, float xmax, uint8_t bits) -> uint16_t {
-        float span = xmax - xmin;
-        float data_norm = (x - xmin) / span;
-        uint16_t data_uint = data_norm * ((1 << bits) - 1);
-        return data_uint;
-    };
-    uint16_t id = DM_Motor.GetCanId();
-    if(motors.find(id) == motors.end())
-    {
-        std::cerr << "[Error] In control_mit,no motor with id " << DM_Motor.GetCanId() << " is registered." << std::endl;
-        std::exit(-1);  // 终止程序，返回非 0 表示错误
-    }
-    auto& m = motors[id];
-    uint16_t kp_uint = float_to_uint(kp, 0, 500, 12);
-    uint16_t kd_uint = float_to_uint(kd, 0, 5, 12);
-    Limit_param limit_param_cmd = m->get_limit_param();
-    uint16_t q_uint = float_to_uint(q, -limit_param_cmd.Q_MAX, limit_param_cmd.Q_MAX, 16);
-    uint16_t dq_uint = float_to_uint(dq, -limit_param_cmd.DQ_MAX,limit_param_cmd.DQ_MAX, 12);
-    uint16_t tau_uint = float_to_uint(tau, -limit_param_cmd.TAU_MAX, limit_param_cmd.TAU_MAX, 12);
-
-    uint16_t can_id = id+MIT_MODE;
-    uint8_t data[8];
-    data[0] = (q_uint >> 8) & 0xff;
-    data[1] = q_uint & 0xff;
-    data[2] = dq_uint >> 4;
-    data[3] = ((dq_uint & 0xf) << 4) | ((kp_uint >> 8) & 0xf);
-    data[4] = kp_uint & 0xff;
-    data[5]= kd_uint >> 4;
-    data[6] = ((kd_uint & 0xf) << 4) | ((tau_uint >> 8) & 0xf);
-    data[7] = tau_uint & 0xff;
-    
-    std::vector<uint8_t> mydata = {data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]};
-    usb_hw->fdcanFrameSend(mydata, can_id);
+  control_cmd(static_cast<uint16_t>(DM_Motor.GetCanId() + DM_Motor.GetMotorMode()), 0xFE,
+              DM_Motor.GetChannel());
 }
 
-void Motor_Control::control_pos_vel(Motor &DM_Motor,float pos,float vel)
+void Motor_Control::control_mit(Motor& DM_Motor, float kp, float kd, float q, float dq, float tau)
 {
-    uint16_t id = DM_Motor.GetCanId();
-    if(motors.find(id) == motors.end())
-    {
-        std::cerr << "[Error] In control_pos_vel,no motor with id " << DM_Motor.GetCanId() << " is registered." << std::endl;
-        std::exit(-1);  // 终止程序，返回非 0 表示错误
-    }
+  static auto float_to_uint = [](float x, float xmin, float xmax, uint8_t bits) -> uint16_t {
+    float span = xmax - xmin;
+    float data_norm = (x - xmin) / span;
+    return static_cast<uint16_t>(data_norm * ((1 << bits) - 1));
+  };
 
-    uint16_t can_id = id+POS_VEL_MODE;
-    uint8_t *pbuf,*vbuf;
-    pbuf=(uint8_t*)&pos;
-    vbuf=(uint8_t*)&vel;
+  const uint16_t id = DM_Motor.GetCanId();
+  if(motors.find(id) == motors.end())
+  {
+    throw std::runtime_error("control_mit: motor not registered");
+  }
+  auto& m = motors[id];
+  const uint16_t kp_uint = float_to_uint(kp, 0, 500, 12);
+  const uint16_t kd_uint = float_to_uint(kd, 0, 5, 12);
+  const Limit_param limit_param_cmd = m->get_limit_param();
+  const uint16_t q_uint =
+    float_to_uint(q, -limit_param_cmd.Q_MAX, limit_param_cmd.Q_MAX, 16);
+  const uint16_t dq_uint =
+    float_to_uint(dq, -limit_param_cmd.DQ_MAX, limit_param_cmd.DQ_MAX, 12);
+  const uint16_t tau_uint =
+    float_to_uint(tau, -limit_param_cmd.TAU_MAX, limit_param_cmd.TAU_MAX, 12);
 
-    uint8_t data[8];
-    data[0] = *pbuf;
-    data[1] = *(pbuf+1);
-    data[2] = *(pbuf+2);
-    data[3] = *(pbuf+3);
-    data[4] = *vbuf;
-    data[5]=  *(vbuf+1);
-    data[6] = *(vbuf+2);
-    data[7] = *(vbuf+3);
-  
-    std::vector<uint8_t> mydata = {data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7]};
-    usb_hw->fdcanFrameSend(mydata, can_id);
+  const uint16_t can_id = static_cast<uint16_t>(id + MIT_MODE);
+  uint8_t data[8];
+  data[0] = (q_uint >> 8) & 0xff;
+  data[1] = q_uint & 0xff;
+  data[2] = static_cast<uint8_t>(dq_uint >> 4);
+  data[3] = static_cast<uint8_t>(((dq_uint & 0xf) << 4) | ((kp_uint >> 8) & 0xf));
+  data[4] = kp_uint & 0xff;
+  data[5] = static_cast<uint8_t>(kd_uint >> 4);
+  data[6] = static_cast<uint8_t>(((kd_uint & 0xf) << 4) | ((tau_uint >> 8) & 0xf));
+  data[7] = tau_uint & 0xff;
+  send_can(DM_Motor.GetChannel(), can_id, data, 8);
 }
 
-void Motor_Control::control_vel(Motor &DM_Motor,float vel)
+void Motor_Control::control_pos_vel(Motor& DM_Motor, float pos, float vel)
 {
-    uint16_t id =DM_Motor.GetCanId();
-    if(motors.find(id) == motors.end())
-    {
-        std::cerr << "[Error] In control_vel,no motor with id " << DM_Motor.GetCanId() << " is registered." << std::endl;
-        std::exit(-1);  // 终止程序，返回非 0 表示错误
-    }
-
-    uint16_t can_id = id+VEL_MODE;
-
-    uint8_t *vbuf;
-    vbuf=(uint8_t*)&vel;
-    uint8_t data[8];
-    data[0] = *vbuf;
-    data[1]=  *(vbuf+1);
-    data[2] = *(vbuf+2);
-    data[3] = *(vbuf+3);
-
-    std::vector<uint8_t> mydata = {data[0], data[1], data[2], data[3]};
-    usb_hw->fdcanFrameSend(mydata, can_id);
+  const uint16_t id = DM_Motor.GetCanId();
+  if(motors.find(id) == motors.end())
+  {
+    throw std::runtime_error("control_pos_vel: motor not registered");
+  }
+  const uint16_t can_id = static_cast<uint16_t>(id + POS_VEL_MODE);
+  uint8_t data[8];
+  std::memcpy(data, &pos, 4);
+  std::memcpy(data + 4, &vel, 4);
+  send_can(DM_Motor.GetChannel(), can_id, data, 8);
 }
-   
+
+void Motor_Control::control_vel(Motor& DM_Motor, float vel)
+{
+  const uint16_t id = DM_Motor.GetCanId();
+  if(motors.find(id) == motors.end())
+  {
+    throw std::runtime_error("control_vel: motor not registered");
+  }
+  const uint16_t can_id = static_cast<uint16_t>(id + VEL_MODE);
+  uint8_t data[4];
+  std::memcpy(data, &vel, 4);
+  send_can(DM_Motor.GetChannel(), can_id, data, 4);
+}
 
 void Motor_Control::receive_param(uint8_t* data)
 {
-    uint16_t canID = (uint16_t(data[1]) << 8) | data[0];
-    uint8_t RID = data[3];
-    if (motors.find(canID) == motors.end())
+  const uint16_t canID = (uint16_t(data[1]) << 8) | data[0];
+  const uint8_t RID = data[3];
+  if(motors.find(canID) == motors.end())
+  {
+    return;
+  }
+  if(is_in_ranges(RID))
+  {
+    const uint32_t data_uint32 = (uint32_t(data[7]) << 24) | (uint32_t(data[6]) << 16) |
+                                 (uint32_t(data[5]) << 8) | data[4];
+    motors[canID]->set_param(RID, data_uint32);
+    if(RID == 10)
     {
-        std::cerr << "[Error] In receive_param,no motor with id " << canID << " is registered." << std::endl;
-        //std::exit(-1);  // 终止程序，返回非 0 表示错误
-        return;
+      if(data_uint32 == 1)
+      {
+        motors[canID]->set_mode(MIT_MODE);
+      }
+      else if(data_uint32 == 2)
+      {
+        motors[canID]->set_mode(POS_VEL_MODE);
+      }
+      else if(data_uint32 == 3)
+      {
+        motors[canID]->set_mode(VEL_MODE);
+      }
+      else if(data_uint32 == 4)
+      {
+        motors[canID]->set_mode(POS_FORCE_MODE);
+      }
     }
-    if(is_in_ranges(RID))
-    {
-        uint32_t data_uint32 = (uint32_t(data[7]) << 24) | (uint32_t(data[6]) << 16) | (uint32_t(data[5]) << 8) | data[4];
-        motors[canID]->set_param(RID, data_uint32);
-        if(RID==10)
-        {   
-            if(data_uint32==1)
-            {
-                motors[canID]->set_mode(MIT_MODE);
-            }
-            else if(data_uint32==2)
-            {   
-                motors[canID]->set_mode(POS_VEL_MODE);
-            }
-            else if(data_uint32==3)
-            { 
-                motors[canID]->set_mode(VEL_MODE);
-            }
-            else if(data_uint32==4)
-            {
-                motors[canID]->set_mode(POS_FORCE_MODE);
-            }
-        }
-    }
-    else
-    {
-        float data_float = uint8_to_float(data + 4);
-        motors[canID]->set_param(RID, data_float);
-    }   
+  }
+  else
+  {
+    motors[canID]->set_param(RID, uint8_to_float(data + 4));
+  }
 }
 
-
-/*
-    * @description: switch control mode 切换电机控制模式
-    * @param DM_Motor: motor object 电机对象
-    * @param mode: control mode 控制模式 like:damiao::MIT_MODE, damiao::POS_VEL_MODE, damiao::VEL_MODE, damiao::POS_FORCE_MODE
-    */
-bool Motor_Control::switchControlMode(Motor &DM_Motor,Control_Mode_Code mode)
+bool Motor_Control::switchControlMode(Motor& DM_Motor, Control_Mode_Code mode)
 {
-    uint8_t write_data[4]={(uint8_t)mode, 0x00, 0x00, 0x00};
-    uint8_t RID = 10;
-    write_motor_param(DM_Motor,RID,write_data);
-    if (motors.find(DM_Motor.GetCanId()) == motors.end())
-    {
-        std::cerr << "[Error] In switchControlMode,no motor with id " << DM_Motor.GetCanId() << " is registered." << std::endl;
-        std::exit(-1);  // 终止程序
-        return false;
-    }
-    
-    return true;
+  const uint8_t write_data[4] = {static_cast<uint8_t>(mode), 0x00, 0x00, 0x00};
+  write_motor_param(DM_Motor, 10, write_data);
+  if(motors.find(DM_Motor.GetCanId()) == motors.end())
+  {
+    return false;
+  }
+  return true;
 }
 
-/*
-    * @description: change motor param 修改电机内部寄存器参数 具体寄存器列表请参考达妙手册
-    * @param DM_Motor: motor object 电机对象
-    * @param RID: register id 寄存器ID
-    * @param data: param data 参数数据,大部分数据是float类型，其中如果是uint32类型的数据也可以直接输入整型的就行，函数内部有处理
-    * @return: bool true or false  是否修改成功
-    */
-bool Motor_Control::change_motor_param(Motor &DM_Motor,uint8_t RID,float data)
+bool Motor_Control::change_motor_param(Motor& DM_Motor, uint8_t RID, float data)
 {
-    if(is_in_ranges(RID)) {
-        //居然传进来的是整型的范围 救一下
-        uint32_t data_uint32 = float_to_uint32(data);
-        uint8_t *data_uint8;
-        data_uint8=(uint8_t*)&data_uint32;
-        write_motor_param(DM_Motor,RID,data_uint8);
-    }
-    else
-    {
-        //is float
-        uint8_t *data_uint8;
-        data_uint8=(uint8_t*)&data;
-        write_motor_param(DM_Motor,RID,data_uint8);
-    }
-    if (motors.find(DM_Motor.GetCanId()) == motors.end())
-    {   
-        std::cerr << "[Error] In change_motor_param,no motor with id " << DM_Motor.GetCanId() << " is registered." << std::endl;
-        std::exit(-1);  // 终止程序，返回非 0 表示错误
-        return false;
-    }
-    return true;
+  if(is_in_ranges(RID))
+  {
+    uint32_t data_uint32 = float_to_uint32(data);
+    write_motor_param(DM_Motor, RID, reinterpret_cast<uint8_t*>(&data_uint32));
+  }
+  else
+  {
+    write_motor_param(DM_Motor, RID, reinterpret_cast<uint8_t*>(&data));
+  }
+  return motors.find(DM_Motor.GetCanId()) != motors.end();
 }
 
-/*
-    * @description: change motor limit param 修改电机限制参数，这个修改的不是电机内部的寄存器参数，而是电机的限制参数
-    * @param DM_Motor: motor object 电机对象
-    * @param P_MAX: position max 位置最大值
-    * @param Q_MAX: velocity max 速度最大值
-    * @param T_MAX: torque max 扭矩最大值
-    */
-void Motor_Control::changeMotorLimit(Motor &DM_Motor,float P_MAX,float Q_MAX,float T_MAX)
+void Motor_Control::changeMotorLimit(Motor& DM_Motor, float P_MAX, float Q_MAX, float T_MAX)
 {
-    limit_param[DM_Motor.GetMotorType()]={P_MAX,Q_MAX,T_MAX};
+  limit_param[DM_Motor.GetMotorType()] = {P_MAX, Q_MAX, T_MAX};
 }
 
-void Motor_Control::canframeCallback(can_value_type& value)
-{   
-    static auto uint_to_float = [](uint16_t x, float xmin, float xmax, uint8_t bits) -> float {
-        float span = xmax - xmin;
-        float data_norm = float(x) / ((1 << bits) - 1);
-        float data = data_norm * span + xmin;
-        
-        return data;
-    };
+void Motor_Control::on_rx_frame(const usb_rx_frame& frame)
+{
+  static auto uint_to_float = [](uint16_t x, float xmin, float xmax, uint8_t bits) -> float {
+    const float span = xmax - xmin;
+    const float data_norm = float(x) / float((1 << bits) - 1);
+    return data_norm * span + xmin;
+  };
 
-    uint32_t canID =value.head.id;
+  std::lock_guard<std::mutex> lock(mutex_);
 
-    if(read_write_save==true&& motors.find(canID) != motors.end())
-    {//这是发送保存参数或者写参数或者读参数返回的数据
-        if(value.data[2]==0x33 || value.data[2]==0x55 || value.data[2]==0xAA)
-        {//发的是读参数或写参数命令，返回对应寄存器参数
-            if(value.data[2]==0x33 || value.data[2]==0x55)
-            {//写参数或者读参数返回
-                receive_param(&value.data[0]);  
-                read_write_save=false;
-            }
-            read_write_save=false;
-        }
+  const uint32_t canID = frame.head.can_id;
+  const uint8_t len = dlc_to_len(static_cast<uint8_t>(frame.head.dlc));
+  if(len < 6)
+  {
+    return;
+  }
+
+  if(read_write_save.load())
+  {
+    if(len >= 8 && (frame.payload[2] == 0x33 || frame.payload[2] == 0x55 || frame.payload[2] == 0xAA))
+    {
+      if(frame.payload[2] == 0x33 || frame.payload[2] == 0x55)
+      {
+        uint8_t buf[8];
+        std::memcpy(buf, frame.payload, 8);
+        receive_param(buf);
+      }
+      read_write_save = false;
+      return;
     }
-    else
-    {//这是正常返回的位置速度力矩数据
-        uint16_t q_uint = (uint16_t(value.data[1]) << 8) | value.data[2];
-        uint16_t dq_uint = (uint16_t(value.data[3]) << 4) | (value.data[4] >> 4);
-        uint16_t tau_uint = (uint16_t(value.data[4] & 0xf) << 8) | value.data[5];
+  }
 
-        if(motors.find(canID) == motors.end())
-        {
-            return;
-        }
-        auto m = motors[canID];
-        Limit_param limit_param_receive = m->get_limit_param();
-        float receive_q = uint_to_float(q_uint, -limit_param_receive.Q_MAX, limit_param_receive.Q_MAX, 16);
+  if(motors.find(static_cast<uint16_t>(canID)) == motors.end())
+  {
+    return;
+  }
 
-        float receive_dq = uint_to_float(dq_uint, -limit_param_receive.DQ_MAX, limit_param_receive.DQ_MAX, 12);
-        float receive_tau = uint_to_float(tau_uint, -limit_param_receive.TAU_MAX, limit_param_receive.TAU_MAX, 12);
-        m->receive_data(receive_q, receive_dq, receive_tau); 
-        
-        m->updateTimeInterval();
-       
-       double interval=m->getTimeInterval() ;
-       //std::cerr<<"motor id is: "<<canID<<": "<<interval<<std::endl;
-    }             
+  auto m = motors[static_cast<uint16_t>(canID)];
+  const uint16_t q_uint = (uint16_t(frame.payload[1]) << 8) | frame.payload[2];
+  const uint16_t dq_uint = (uint16_t(frame.payload[3]) << 4) | (frame.payload[4] >> 4);
+  const uint16_t tau_uint = (uint16_t(frame.payload[4] & 0xf) << 8) | frame.payload[5];
+  const Limit_param limit_param_receive = m->get_limit_param();
+  const float receive_q =
+    uint_to_float(q_uint, -limit_param_receive.Q_MAX, limit_param_receive.Q_MAX, 16);
+  const float receive_dq =
+    uint_to_float(dq_uint, -limit_param_receive.DQ_MAX, limit_param_receive.DQ_MAX, 12);
+  const float receive_tau =
+    uint_to_float(tau_uint, -limit_param_receive.TAU_MAX, limit_param_receive.TAU_MAX, 12);
+  m->receive_data(receive_q, receive_dq, receive_tau);
+  m->updateTimeInterval();
 }
 
-}
-        
-       
+}  // namespace damiao

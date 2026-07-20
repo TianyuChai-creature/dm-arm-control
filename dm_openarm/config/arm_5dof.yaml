@@ -1,7 +1,11 @@
 usb:
-  serial: "14AA044B241402B10DDBDAFE448040BB"
+  serial: "52A871B1AA5EF4E239371A5083463F26"
   nominal_baud: 1000000
   data_baud: 1000000
+  # Station hardware uses classic CAN 1M (not CAN FD data-domain 5M).
+  canfd: false
+  brs: false
+  device_index: 0
 
 control:
   loop_period_ms: 1

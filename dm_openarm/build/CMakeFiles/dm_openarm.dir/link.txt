@@ -1,2 +1,0 @@
-/usr/bin/ar qc libdm_openarm.a CMakeFiles/dm_openarm.dir/src/backend/dm_serial_backend.cpp.o CMakeFiles/dm_openarm.dir/src/dm_arm.cpp.o CMakeFiles/dm_openarm.dir/src/mit_control_command.cpp.o CMakeFiles/dm_openarm.dir/src/mit_loop_controller.cpp.o CMakeFiles/dm_openarm.dir/src/motor.cpp.o CMakeFiles/dm_openarm.dir/src/motor_group.cpp.o CMakeFiles/dm_openarm.dir/src/yaml_loader.cpp.o
-/usr/bin/ranlib libdm_openarm.a

@@ -1,8 +1,0 @@
-{
-  "source_dir": "/home/creature/Desktop/DM-openarm/dm_openarm",
-  "build_dir": "/home/creature/Desktop/DM-openarm/dm_openarm/build/cp313-cp313-linux_x86_64",
-  "cmake_path": "/usr/bin/cmake",
-  "skbuild_path": "/tmp/pip-build-env-8v0r6j_8/overlay/lib/python3.13/site-packages/scikit_build_core",
-  "skbuild_version": "0.12.2",
-  "python_executable": "/home/creature/miniconda3/bin/python"
-}

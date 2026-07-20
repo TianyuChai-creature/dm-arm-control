@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/test_mit_control_command.dir/tests/test_mit_control_command.cpp.o -o test_mit_control_command  libdm_openarm.a libdamiao_sdk.a /home/creature/Desktop/DM-openarm/dm_openarm/third_party/damiao_sdk/lib/libu2canfd.a /usr/lib/x86_64-linux-gnu/libusb-1.0.so /usr/lib/x86_64-linux-gnu/libudev.so -lyaml-cpp 

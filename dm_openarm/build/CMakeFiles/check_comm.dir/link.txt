@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/check_comm.dir/examples/check_comm.cpp.o -o check_comm  libdm_openarm.a libdamiao_sdk.a /home/creature/Desktop/DM-openarm/dm_openarm/third_party/damiao_sdk/lib/libu2canfd.a /usr/lib/x86_64-linux-gnu/libusb-1.0.so /usr/lib/x86_64-linux-gnu/libudev.so -lyaml-cpp 

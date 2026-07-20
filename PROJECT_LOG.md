@@ -107,4 +107,9 @@ python_script/                   # 独立 Python 脚本
 
 ## 技术笔记
 
-<!-- 在此记录技术决策、遇到的问题及解决方案 -->
+### 2026-07-20 — u2canfd 链路移植
+
+- **根因**：`dm_openarm` 原先链接旧栈 `libu2canfd.a`（`usb_class`），而工位实测可用的是 `resources/u2canfd` → `libdm_device.so`（dmcan API）+ **经典 CAN 1M**（`canfd=false, brs=false`）。
+- **改造**：`Motor_Control` 改为 dmcan 开设备/设波特率/收发；YAML 增加 `canfd`/`brs`/`device_index`；`enable_all` 对电机去重。
+- **关闭设备**：本机上同时调用 `dmcan_device_close` + `dmcan_context_destroy` 会触发 libusb 断言；现仅 `context_destroy` 收尾（与 u2canfd `test_link.py` 规避同类问题一致）。
+- **验证**：`./check_comm` 对 5 轴反馈 PASS。

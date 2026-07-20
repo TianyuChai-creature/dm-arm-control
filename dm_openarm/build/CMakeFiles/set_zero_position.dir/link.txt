@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/set_zero_position.dir/examples/set_zero_position.cpp.o -o set_zero_position  libdm_openarm.a libdamiao_sdk.a /home/creature/Desktop/DM-openarm/dm_openarm/third_party/damiao_sdk/lib/libu2canfd.a /usr/lib/x86_64-linux-gnu/libusb-1.0.so /usr/lib/x86_64-linux-gnu/libudev.so -lyaml-cpp 

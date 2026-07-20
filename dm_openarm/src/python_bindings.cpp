@@ -61,6 +61,9 @@ NB_MODULE(_core, m)
     .def_rw("usb_serial", &dm_openarm::ArmConfig::usb_serial)
     .def_rw("nom_baud", &dm_openarm::ArmConfig::nom_baud)
     .def_rw("dat_baud", &dm_openarm::ArmConfig::dat_baud)
+    .def_rw("canfd", &dm_openarm::ArmConfig::canfd)
+    .def_rw("brs", &dm_openarm::ArmConfig::brs)
+    .def_rw("device_index", &dm_openarm::ArmConfig::device_index)
     .def_rw("motors", &dm_openarm::ArmConfig::motors);
 
   m.def(

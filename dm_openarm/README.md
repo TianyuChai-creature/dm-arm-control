@@ -11,14 +11,19 @@ Python API。底层复用达妙 USB-CANFD SDK，当前版本只封装 MIT 模式
 
 ## 当前硬件配置
 
+与工位实测 `resources/u2canfd` 对齐（见 `resources/u2canfd/HARDWARE_CONFIG.md`）。
+
 | 项目 | 值 | 单位/说明 |
 | --- | --- | --- |
-| CAN 协议 | CAN 2.0 / USB-CANFD SDK | 底层由达妙 SDK 处理 |
-| USB-CANFD SN | `14AA044B241402B10DDBDAFE448040BB` | 如果适配器不同，需要改 YAML |
+| 设备驱动 | `libdm_device.so`（dmcan API） | 与 u2canfd 相同栈，不是旧 `libu2canfd.a` |
+| 链路模式 | **经典 CAN** | YAML：`canfd: false`，`brs: false` |
+| USB-CANFD SN | `52A871B1AA5EF4E239371A5083463F26` | 如果适配器不同，需要改 YAML |
 | nominal baud | `1000000` | bit/s |
-| data baud | `1000000` | bit/s |
+| data baud | `1000000` | classic CAN 下数据域不使用 |
 | 控制模式 | MIT | 当前只支持 MIT |
 | 控制循环 | `1000` | Hz，默认 1 kHz |
+
+> 工位实测：CAN FD（含数据域 1M/5M）无回帧；请勿把文档默认写成 5M CANFD。
 
 电机顺序和 ID：
 

@@ -1,0 +1,34 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+*.so
+!dm_openarm/third_party/damiao_sdk/lib/libdm_device.so
+
+# CMake / local builds
+dm_openarm/build/
+**/CMakeCache.txt
+**/CMakeFiles/
+**/cmake_install.cmake
+**/Makefile
+!dm_openarm/CMakeLists.txt
+Testing/
+CTestTestfile.cmake
+DartConfiguration.tcl
+compile_commands.json
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Logs / temp
+*.log
+*.tmp
+/tmp/

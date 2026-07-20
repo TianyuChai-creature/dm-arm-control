@@ -18,6 +18,9 @@ dm_openarm::ArmConfig test_config()
     "TEST_SERIAL",
     1000000,
     1000000,
+    false,
+    false,
+    0,
     std::chrono::milliseconds(1),
     {
       dm_openarm::MotorConfig{"joint_1", dm_openarm::MotorModel::DM4310, dm_openarm::ControlMode::MIT, 0x01, 0x11},

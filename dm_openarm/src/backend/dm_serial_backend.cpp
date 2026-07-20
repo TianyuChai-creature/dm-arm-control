@@ -45,7 +45,14 @@ void DmSerialBackend::connect()
   }
 
   control_ = std::make_shared<damiao::Motor_Control>(
-    config_.nom_baud, config_.dat_baud, config_.usb_serial, &init_data_);
+    config_.nom_baud,
+    config_.dat_baud,
+    config_.usb_serial,
+    &init_data_,
+    config_.canfd,
+    config_.brs,
+    config_.device_index,
+    /*auto_enable=*/true);
 }
 
 void DmSerialBackend::disconnect()

@@ -106,9 +106,12 @@ void test_default_config_loads()
 {
   const auto config = dm_openarm::load_arm_config(project_root() / "config" / "arm_5dof.yaml");
 
-  assert(config.usb_serial == "14AA044B241402B10DDBDAFE448040BB");
+  assert(config.usb_serial == "52A871B1AA5EF4E239371A5083463F26");
   assert(config.nom_baud == 1000000);
   assert(config.dat_baud == 1000000);
+  assert(config.canfd == false);
+  assert(config.brs == false);
+  assert(config.device_index == 0);
   assert(config.loop_period == std::chrono::milliseconds(1));
   assert(config.motors.size() == 5);
 

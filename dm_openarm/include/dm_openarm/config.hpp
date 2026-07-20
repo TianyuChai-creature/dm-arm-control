@@ -21,6 +21,10 @@ struct ArmConfig {
   std::string usb_serial;
   std::uint32_t nom_baud{1000000};
   std::uint32_t dat_baud{1000000};
+  /// Classic CAN when false (station default). Matches resources/u2canfd.
+  bool canfd{false};
+  bool brs{false};
+  int device_index{0};
   std::chrono::milliseconds loop_period{1};
   std::vector<MotorConfig> motors;
 };

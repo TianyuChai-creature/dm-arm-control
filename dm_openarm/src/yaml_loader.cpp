@@ -123,6 +123,21 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
 
   config.nom_baud = parse_uint32(require_node(usb, "nominal_baud", "usb"), "usb.nominal_baud");
   config.dat_baud = parse_uint32(require_node(usb, "data_baud", "usb"), "usb.data_baud");
+
+  // Optional fields; default classic CAN 1M (canfd=false, brs=false) to match u2canfd station config.
+  if(usb["canfd"])
+  {
+    config.canfd = usb["canfd"].as<bool>();
+  }
+  if(usb["brs"])
+  {
+    config.brs = usb["brs"].as<bool>();
+  }
+  if(usb["device_index"])
+  {
+    config.device_index = static_cast<int>(parse_uint32(usb["device_index"], "usb.device_index"));
+  }
+
   config.loop_period = std::chrono::milliseconds(
     parse_uint32(require_node(control, "loop_period_ms", "control"), "control.loop_period_ms"));
 
