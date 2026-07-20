@@ -114,6 +114,8 @@ void test_default_config_loads()
   assert(config.device_index == 0);
   assert(config.loop_period == std::chrono::milliseconds(1));
   assert(config.motors.size() == 5);
+  assert(config.gravity.enabled == false);
+  assert(config.gravity.joints.size() == 5);
 
   assert(config.motors[0].name == "end_effector");
   assert(config.motors[0].model == dm_openarm::MotorModel::DM4310);

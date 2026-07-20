@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Iterable
 
 from . import _core
 
@@ -32,23 +31,31 @@ class Arm:
     def set_zero_all(self, persist: bool = True) -> None:
         self._arm.set_zero_all(persist)
 
-    def start_mit_loop(self, hz: float = 1000.0, zero_timeout: float = 5.0) -> None:
+    def start_mit_loop(
+        self,
+        hz: float = 1000.0,
+        zero_timeout: float = 5.0,
+        *,
+        home: bool = True,
+    ) -> None:
         """Start the MIT control loop.
 
-        All motors are first commanded to position 0.  The method
-        blocks until every motor reports a position within
-        tolerance of 0, or *zero_timeout* seconds elapse.
+        If *home* is True (default), all motors are first commanded to
+        ``q=0`` and this method blocks until they are near zero or
+        *zero_timeout* elapses. Set ``home=False`` to hold current
+        commands (e.g. gravity-compensated hold at the present pose).
         """
         self._loop.start(hz)
 
-        # Command all motors to zero position.
+        if not home:
+            return
+
         states = self.states()
         self._loop.set_all_commands([
             _core.MitCommand(kp=12.0, kd=0.6, q=0.0, dq=0.0, tau=0.0)
             for _ in states
         ])
 
-        # Wait until all motors are near zero or timeout.
         pos_tol = 0.05  # radians
         deadline = time.monotonic() + zero_timeout
         while True:
@@ -57,7 +64,7 @@ class Arm:
                 break
             if time.monotonic() >= deadline:
                 break
-            time.sleep(0.01)  # ~100 Hz
+            time.sleep(0.01)
 
     def stop_mit_loop(self) -> None:
         if self._loop.running():
@@ -69,6 +76,38 @@ class Arm:
 
     def commands(self):
         return self._loop.commands()
+
+    # ── Gravity compensation ──────────────────────────────────────────
+
+    def set_gravity_enabled(self, enabled: bool) -> None:
+        """Enable/disable gravity feedforward inside the MIT loop.
+
+        When enabled: ``tau_sent = cmd.tau + scale * g(q)``.
+        """
+        self._loop.set_gravity_enabled(enabled)
+
+    def gravity_enabled(self) -> bool:
+        return self._loop.gravity_enabled()
+
+    def set_gravity_scale(self, scale: float) -> None:
+        """Scale factor on gravity torques (1.0 = full model)."""
+        self._loop.set_gravity_scale(scale)
+
+    def gravity_scale(self) -> float:
+        return self._loop.gravity_scale()
+
+    def set_gravity_use_measured_q(self, use_measured: bool) -> None:
+        """If True, g(q) uses measured positions; else MIT command q."""
+        self._loop.set_gravity_use_measured_q(use_measured)
+
+    def gravity_torques(self, q: list[float] | None = None) -> list[float]:
+        """Return gravity torques for joint positions (motor order).
+
+        If *q* is None, use current measured positions from :meth:`states`.
+        """
+        if q is None:
+            q = [s.position for s in self.states()]
+        return list(self._loop.gravity_torques(q))
 
     # ── The unified MIT API ───────────────────────────────────────────
 
@@ -96,8 +135,9 @@ class Arm:
                 0x04: MitCommand(kp=10.0, kd=0.8, q=0.5, tau=1.0),
             })
 
-        Non-targeted motors keep whatever command was previously set
-        (typically hold-at-position from :meth:`start_mit_loop`).
+        Non-targeted motors keep whatever command was previously set.
+        When gravity compensation is enabled, ``tau`` is *additional*
+        feedforward on top of ``g(q)``.
         """
         if isinstance(target, dict):
             for can_id, cmd in target.items():

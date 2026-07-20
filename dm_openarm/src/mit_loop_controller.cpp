@@ -8,6 +8,7 @@ namespace dm_openarm {
 
 MitLoopController::MitLoopController(DmArm& arm)
   : arm_(arm)
+  , gravity_model_(arm.config().gravity.joints)
 {
   const auto& motors = arm_.config().motors;
   can_ids_.reserve(motors.size());
@@ -16,6 +17,22 @@ MitLoopController::MitLoopController(DmArm& arm)
   {
     can_ids_.push_back(motor.can_id);
   }
+
+  // Align gravity param count with motors (pad zeros if YAML shorter).
+  if(gravity_model_.size() != motors.size())
+  {
+    std::vector<JointGravityParam> padded(motors.size());
+    const auto& src = arm.config().gravity.joints;
+    for(std::size_t i = 0; i < padded.size() && i < src.size(); ++i)
+    {
+      padded[i] = src[i];
+    }
+    gravity_model_ = GravityModel(std::move(padded));
+  }
+
+  gravity_enabled_ = arm.config().gravity.enabled;
+  gravity_scale_ = arm.config().gravity.scale;
+  gravity_use_measured_q_ = arm.config().gravity.use_measured_q;
 }
 
 MitLoopController::~MitLoopController()
@@ -100,6 +117,41 @@ std::vector<MitCommand> MitLoopController::commands() const
   return commands_;
 }
 
+void MitLoopController::set_gravity_enabled(bool enabled)
+{
+  gravity_enabled_ = enabled;
+}
+
+bool MitLoopController::gravity_enabled() const noexcept
+{
+  return gravity_enabled_;
+}
+
+void MitLoopController::set_gravity_scale(double scale)
+{
+  gravity_scale_ = scale;
+}
+
+double MitLoopController::gravity_scale() const noexcept
+{
+  return gravity_scale_;
+}
+
+void MitLoopController::set_gravity_use_measured_q(bool use_measured)
+{
+  gravity_use_measured_q_ = use_measured;
+}
+
+bool MitLoopController::gravity_use_measured_q() const noexcept
+{
+  return gravity_use_measured_q_;
+}
+
+std::vector<double> MitLoopController::gravity_torques(const std::vector<double>& q) const
+{
+  return gravity_model_.compute(q, gravity_scale_.load());
+}
+
 std::size_t MitLoopController::motor_index(std::uint16_t can_id) const
 {
   for(std::size_t i = 0; i < can_ids_.size(); ++i)
@@ -111,6 +163,42 @@ std::size_t MitLoopController::motor_index(std::uint16_t can_id) const
   }
 
   throw std::invalid_argument("unknown motor CAN ID");
+}
+
+std::vector<MitCommand> MitLoopController::apply_gravity(std::vector<MitCommand> commands) const
+{
+  if(!gravity_enabled_.load() || gravity_model_.size() == 0)
+  {
+    return commands;
+  }
+
+  std::vector<double> q(commands.size(), 0.0);
+  if(gravity_use_measured_q_.load())
+  {
+    const auto states = arm_.states();
+    if(states.size() != commands.size())
+    {
+      throw std::runtime_error("gravity: state count does not match command count");
+    }
+    for(std::size_t i = 0; i < states.size(); ++i)
+    {
+      q[i] = states[i].position;
+    }
+  }
+  else
+  {
+    for(std::size_t i = 0; i < commands.size(); ++i)
+    {
+      q[i] = commands[i].q;
+    }
+  }
+
+  const auto tau_g = gravity_model_.compute(q, gravity_scale_.load());
+  for(std::size_t i = 0; i < commands.size(); ++i)
+  {
+    commands[i].tau += tau_g[i];
+  }
+  return commands;
 }
 
 void MitLoopController::worker_loop(double hz)
@@ -129,6 +217,7 @@ void MitLoopController::worker_loop(double hz)
         snapshot = commands_;
       }
 
+      snapshot = apply_gravity(std::move(snapshot));
       arm_.send_mit_all(snapshot);
 
       next_tick += std::chrono::duration_cast<clock::duration>(period);

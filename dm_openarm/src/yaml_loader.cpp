@@ -176,6 +176,57 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
     throw std::runtime_error("motors must contain at least one motor");
   }
 
+  // Optional gravity section. Defaults: disabled, identity scale, zeros.
+  config.gravity.joints.assign(config.motors.size(), JointGravityParam{});
+  if(root["gravity"])
+  {
+    const auto gravity = root["gravity"];
+    if(gravity["enabled"])
+    {
+      config.gravity.enabled = gravity["enabled"].as<bool>();
+    }
+    if(gravity["scale"])
+    {
+      config.gravity.scale = gravity["scale"].as<double>();
+    }
+    if(gravity["use_measured_q"])
+    {
+      config.gravity.use_measured_q = gravity["use_measured_q"].as<bool>();
+    }
+    if(gravity["joints"])
+    {
+      if(!gravity["joints"].IsSequence())
+      {
+        throw std::runtime_error("config field must be a sequence: gravity.joints");
+      }
+      if(gravity["joints"].size() != config.motors.size())
+      {
+        throw std::runtime_error(
+          "gravity.joints length must match motors length (" +
+          std::to_string(config.motors.size()) + ")");
+      }
+      for(std::size_t i = 0; i < gravity["joints"].size(); ++i)
+      {
+        const auto joint = gravity["joints"][i];
+        const std::string prefix = "gravity.joints[" + std::to_string(i) + "]";
+        JointGravityParam param;
+        if(joint["amp"])
+        {
+          param.amp = joint["amp"].as<double>();
+        }
+        if(joint["phase"])
+        {
+          param.phase = joint["phase"].as<double>();
+        }
+        if(joint["bias"])
+        {
+          param.bias = joint["bias"].as<double>();
+        }
+        config.gravity.joints[i] = param;
+      }
+    }
+  }
+
   return config;
 }
 

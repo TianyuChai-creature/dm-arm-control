@@ -113,3 +113,11 @@ python_script/                   # 独立 Python 脚本
 - **改造**：`Motor_Control` 改为 dmcan 开设备/设波特率/收发；YAML 增加 `canfd`/`brs`/`device_index`；`enable_all` 对电机去重。
 - **关闭设备**：本机上同时调用 `dmcan_device_close` + `dmcan_context_destroy` 会触发 libusb 断言；现仅 `context_destroy` 收尾（与 u2canfd `test_link.py` 规避同类问题一致）。
 - **验证**：`./check_comm` 对 5 轴反馈 PASS。
+
+### 2026-07-20 — 重力补偿（分支 gravity-compensation）
+
+- 模型：每轴 `tau_g = amp * sin(q + phase) + bias`（解耦一阶，便于辨识；后续可换耦合模型）
+- MIT loop 每周期：`tau_sent = cmd.tau + scale * g(q)`，`q` 默认用测量位置
+- YAML：`gravity.enabled / scale / use_measured_q / joints[]`
+- Python：`set_gravity_enabled`、`set_gravity_scale`、`gravity_torques`；`start_mit_loop(home=False)` 支持不回零保持
+- 示例：`python_script/hold_with_gravity.py`

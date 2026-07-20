@@ -10,6 +10,20 @@ usb:
 control:
   loop_period_ms: 1
 
+# Gravity compensation: tau_ff += scale * (amp * sin(q + phase) + bias) per joint.
+# amp/phase/bias start at 0; identify on hardware then fill in.
+# Joint order must match motors[] below.
+gravity:
+  enabled: false
+  scale: 1.0
+  use_measured_q: true
+  joints:
+    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x01 end_effector
+    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x02 wrist_2
+    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x03 wrist_3
+    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x04 elbow
+    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x05 shoulder
+
 motors:
   - name: end_effector
     model: DM4310

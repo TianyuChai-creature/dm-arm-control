@@ -51,6 +51,7 @@ add_library(
   dm_openarm
   src/backend/dm_serial_backend.cpp
   src/dm_arm.cpp
+  src/gravity_model.cpp
   src/mit_control_command.cpp
   src/mit_loop_controller.cpp
   src/motor.cpp
@@ -142,4 +143,9 @@ if(BUILD_TESTING)
   target_link_libraries(test_mit_loop_controller PRIVATE dm_openarm)
   dm_openarm_set_rpath(test_mit_loop_controller)
   add_test(NAME test_mit_loop_controller COMMAND test_mit_loop_controller)
+
+  add_executable(test_gravity_model tests/test_gravity_model.cpp)
+  target_link_libraries(test_gravity_model PRIVATE dm_openarm)
+  dm_openarm_set_rpath(test_gravity_model)
+  add_test(NAME test_gravity_model COMMAND test_gravity_model)
 endif()

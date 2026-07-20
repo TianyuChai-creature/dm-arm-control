@@ -102,5 +102,26 @@ NB_MODULE(_core, m)
       "set_all_commands",
       &dm_openarm::MitLoopController::set_all_commands,
       nb::arg("commands"))
-    .def("commands", &dm_openarm::MitLoopController::commands);
+    .def("commands", &dm_openarm::MitLoopController::commands)
+    .def(
+      "set_gravity_enabled",
+      &dm_openarm::MitLoopController::set_gravity_enabled,
+      nb::arg("enabled"))
+    .def("gravity_enabled", &dm_openarm::MitLoopController::gravity_enabled)
+    .def(
+      "set_gravity_scale",
+      &dm_openarm::MitLoopController::set_gravity_scale,
+      nb::arg("scale"))
+    .def("gravity_scale", &dm_openarm::MitLoopController::gravity_scale)
+    .def(
+      "set_gravity_use_measured_q",
+      &dm_openarm::MitLoopController::set_gravity_use_measured_q,
+      nb::arg("use_measured"))
+    .def(
+      "gravity_use_measured_q",
+      &dm_openarm::MitLoopController::gravity_use_measured_q)
+    .def(
+      "gravity_torques",
+      &dm_openarm::MitLoopController::gravity_torques,
+      nb::arg("q"));
 }
