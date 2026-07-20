@@ -11,18 +11,20 @@ control:
   loop_period_ms: 1
 
 # Gravity compensation: tau_ff += scale * (amp * sin(q + phase) + bias) per joint.
-# amp/phase/bias start at 0; identify on hardware then fill in.
+# Identified 2026-07-20 (gravity_identified.yaml): proximal joints dominate.
+# 0x02/0x03 ~0 by structure; 0x01 small; 0x04/0x05 carry main load.
+# scale 略 <1：欠补偿更安全；过补偿在软 kp 下会“顶过头”失稳。
 # Joint order must match motors[] below.
 gravity:
-  enabled: false
-  scale: 1.0
+  enabled: true
+  scale: 0.9
   use_measured_q: true
   joints:
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x01 end_effector
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x02 wrist_2
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x03 wrist_3
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x04 elbow
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x05 shoulder
+    - { amp: 0.229964, phase: -2.212243, bias: 0.139739 }   # 0x01 end_effector
+    - { amp: 0.0, phase: 0.0, bias: 0.0 }                   # 0x02 wrist_2 (~0)
+    - { amp: 0.0, phase: 0.0, bias: 0.0 }                   # 0x03 wrist_3 (~0)
+    - { amp: 2.931774, phase: -0.015042, bias: 0.072096 }   # 0x04 elbow
+    - { amp: 3.395424, phase: -0.044572, bias: 0.145176 }   # 0x05 shoulder
 
 motors:
   - name: end_effector

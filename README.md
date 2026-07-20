@@ -164,10 +164,13 @@ finally:
 | `enable()` | 打开设备并使能电机 |
 | `disable()` | 停 loop + 失能 + 释放设备 |
 | `states()` | 各轴反馈列表 |
-| `start_mit_loop(hz=1000, zero_timeout=5)` | 后台 1 kHz 循环，并先命令回零 |
+| `start_mit_loop(hz=1000, zero_timeout=5, home=True)` | 后台 1 kHz 循环；`home=False` 时不回零 |
 | `stop_mit_loop()` | 停止后台循环 |
 | `mit(can_id, kp=..., kd=..., q=..., dq=..., tau=...)` | 更新单轴 MIT 目标 |
 | `mit({can_id: MitCommand(...), ...})` | 批量更新（未列出的轴保持原命令） |
+| `set_gravity_enabled(bool)` | 打开/关闭 loop 内重力前馈 |
+| `set_gravity_scale(float)` | 重力前馈比例 |
+| `gravity_torques(q=None)` | 计算 \(g(q)\)（默认用当前测量角） |
 | `commands()` | 当前命令表 |
 | `mit_loop_running` | loop 是否在跑 |
 | `set_zero(can_id, persist=True)` | 当前位置写为零位（`persist` 写 flash） |
