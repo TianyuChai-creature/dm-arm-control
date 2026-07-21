@@ -283,6 +283,31 @@ finally:
 | `python_script/hold_with_gravity.py` | 重力前馈 + 软刚度保持当前姿态 |
 | `python_script/move_joints_demo.py` | 五次多项式关节轨迹 + 耦合重力（小角度） |
 
+## 双臂 left / right
+
+同一 USB-CAN 上左臂 `0x01–0x05`、右臂 `0x21–0x25`。设备共享 `enable` / `start_mit_loop`，控制按侧：
+
+```python
+from dm_openarm import Arm
+
+arm = Arm.from_yaml("dm_openarm/config/arm_dual_10dof.yaml")
+arm.enable()
+# 先 seed 当前姿态再开环，避免 home 回零
+for s in arm.states():
+    arm.mit(s.can_id, kp=12, kd=0.6, q=s.position)
+arm.start_mit_loop(home=False)
+
+arm.left.set_gravity_enabled(True)
+arm.right.set_gravity_enabled(False)  # 右臂未辨识重力前保持关
+
+arm.left.move_joints([...], duration=2.5)
+arm.right.move_joints([...], duration=2.5)
+arm.disable()
+```
+
+扫描：`python python_script/scan_motors_online.py`  
+配置：`dm_openarm/config/arm_dual_10dof.yaml`（旧 `arm_5dof.yaml` 仍为单左臂）。
+
 ## 关节轨迹跟踪
 
 软 MIT 下**完成条件是规划时长 \(T\)**，不是「位置误差进容差」。残差重力 + 低 \(k_p\) 会产生稳态滞后，属预期；`MoveResult` 只报告 `max_abs_err`，不抛「未到位」。

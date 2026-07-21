@@ -8,7 +8,8 @@ from unittest.mock import MagicMock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "python"))
 
-from dm_openarm.arm import Arm, MoveResult, _default_gains
+from dm_openarm.arm import Arm, MoveResult
+from dm_openarm.limb import Limb, _default_gains
 from dm_openarm.trajectory import plan_joint_trajectory
 
 
@@ -68,7 +69,9 @@ def test_move_joints_time_boxed_returns_result() -> None:
     class StubArm(Arm):
         def __init__(self) -> None:
             # Bypass real DmArm / MitLoopController construction.
-            pass
+            self._loop = MagicMock()
+            self.right = None
+            self.left = Limb(self, "left", [0x01, 0x02], ["a", "b"])  # type: ignore[misc]
 
         @property
         def mit_loop_running(self) -> bool:
@@ -98,7 +101,6 @@ def test_move_joints_time_boxed_returns_result() -> None:
                 arm._done = True  # type: ignore[attr-defined]
 
     arm.mit = mit  # type: ignore[method-assign]
-    arm.set_gravity_enabled = MagicMock()  # type: ignore[method-assign]
 
     result = arm.move_joints(
         qf,

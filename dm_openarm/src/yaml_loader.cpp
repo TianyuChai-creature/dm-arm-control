@@ -92,61 +92,21 @@ ControlMode parse_mode(const YAML::Node& node, const std::string& path)
   throw std::runtime_error("only MIT mode is supported in " + path + ": " + value);
 }
 
-}  // namespace
-
-ArmConfig load_arm_config(const std::filesystem::path& path)
+void parse_motors_sequence(
+  const YAML::Node& motors,
+  const std::string& path,
+  std::vector<MotorConfig>& out,
+  std::set<std::uint16_t>& can_ids,
+  std::set<std::uint16_t>& mst_ids)
 {
-  YAML::Node root;
-  try
-  {
-    root = YAML::LoadFile(path.string());
-  }
-  catch(const std::exception& e)
-  {
-    throw std::runtime_error("failed to load arm config " + path.string() + ": " + e.what());
-  }
-
-  const auto usb = require_node(root, "usb", "root");
-  const auto control = require_node(root, "control", "root");
-  const auto motors = require_node(root, "motors", "root");
   if(!motors.IsSequence())
   {
-    throw std::runtime_error("config field must be a sequence: motors");
+    throw std::runtime_error("config field must be a sequence: " + path);
   }
-
-  ArmConfig config;
-  config.usb_serial = scalar_string(require_node(usb, "serial", "usb"), "usb.serial");
-  if(config.usb_serial.empty())
-  {
-    throw std::runtime_error("usb.serial must not be empty");
-  }
-
-  config.nom_baud = parse_uint32(require_node(usb, "nominal_baud", "usb"), "usb.nominal_baud");
-  config.dat_baud = parse_uint32(require_node(usb, "data_baud", "usb"), "usb.data_baud");
-
-  // Optional fields; default classic CAN 1M (canfd=false, brs=false) to match u2canfd station config.
-  if(usb["canfd"])
-  {
-    config.canfd = usb["canfd"].as<bool>();
-  }
-  if(usb["brs"])
-  {
-    config.brs = usb["brs"].as<bool>();
-  }
-  if(usb["device_index"])
-  {
-    config.device_index = static_cast<int>(parse_uint32(usb["device_index"], "usb.device_index"));
-  }
-
-  config.loop_period = std::chrono::milliseconds(
-    parse_uint32(require_node(control, "loop_period_ms", "control"), "control.loop_period_ms"));
-
-  std::set<std::uint16_t> can_ids;
-  std::set<std::uint16_t> mst_ids;
   for(std::size_t i = 0; i < motors.size(); ++i)
   {
     const auto motor = motors[i];
-    const std::string prefix = "motors[" + std::to_string(i) + "]";
+    const std::string prefix = path + "[" + std::to_string(i) + "]";
 
     MotorConfig motor_config;
     motor_config.name = scalar_string(require_node(motor, "name", prefix), prefix + ".name");
@@ -168,94 +128,208 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
       throw std::runtime_error(oss.str());
     }
 
-    config.motors.push_back(motor_config);
+    out.push_back(motor_config);
+  }
+}
+
+GravityConfig parse_gravity(const YAML::Node& gravity, const std::string& path, std::size_t n_motors)
+{
+  GravityConfig gcfg;
+  if(gravity["enabled"])
+  {
+    gcfg.enabled = gravity["enabled"].as<bool>();
+  }
+  if(gravity["scale"])
+  {
+    gcfg.scale = gravity["scale"].as<double>();
+  }
+  if(gravity["use_measured_q"])
+  {
+    gcfg.use_measured_q = gravity["use_measured_q"].as<bool>();
+  }
+  if(gravity["mode"])
+  {
+    const std::string mode = gravity["mode"].as<std::string>();
+    if(mode != "coupled")
+    {
+      throw std::runtime_error(
+        path + ".mode must be 'coupled' (decoupled mode has been removed)");
+    }
+  }
+  if(gravity["joints"])
+  {
+    throw std::runtime_error(
+      path + ".joints is no longer supported; use gravity.coupled only");
+  }
+  if(gravity["coupled"])
+  {
+    const auto coupled = gravity["coupled"];
+    if(!coupled["basis"] || !coupled["basis"].IsSequence())
+    {
+      throw std::runtime_error(path + ".coupled.basis must be a sequence");
+    }
+    if(!coupled["weights"] || !coupled["weights"].IsSequence())
+    {
+      throw std::runtime_error(path + ".coupled.weights must be a sequence");
+    }
+    CoupledGravityParam cp;
+    for(std::size_t k = 0; k < coupled["basis"].size(); ++k)
+    {
+      cp.basis.push_back(coupled["basis"][k].as<std::string>());
+    }
+    if(cp.basis.empty())
+    {
+      throw std::runtime_error(path + ".coupled.basis must not be empty");
+    }
+    if(coupled["weights"].size() != n_motors)
+    {
+      throw std::runtime_error(
+        path + ".coupled.weights length must match limb motors length (" +
+        std::to_string(n_motors) + ")");
+    }
+    for(std::size_t j = 0; j < coupled["weights"].size(); ++j)
+    {
+      const auto row = coupled["weights"][j];
+      if(!row.IsSequence() || row.size() != cp.basis.size())
+      {
+        throw std::runtime_error(
+          path + ".coupled.weights[" + std::to_string(j) +
+          "] must be a sequence of length basis");
+      }
+      std::vector<double> w;
+      w.reserve(cp.basis.size());
+      for(std::size_t k = 0; k < row.size(); ++k)
+      {
+        w.push_back(row[k].as<double>());
+      }
+      cp.weights.push_back(std::move(w));
+    }
+    gcfg.coupled = std::move(cp);
+  }
+  if(gcfg.enabled &&
+     (gcfg.coupled.basis.empty() || gcfg.coupled.weights.empty()))
+  {
+    throw std::runtime_error(
+      path + ".enabled is true but gravity.coupled basis/weights are missing");
+  }
+  return gcfg;
+}
+
+}  // namespace
+
+ArmConfig load_arm_config(const std::filesystem::path& path)
+{
+  YAML::Node root;
+  try
+  {
+    root = YAML::LoadFile(path.string());
+  }
+  catch(const std::exception& e)
+  {
+    throw std::runtime_error("failed to load arm config " + path.string() + ": " + e.what());
+  }
+
+  const auto usb = require_node(root, "usb", "root");
+  const auto control = require_node(root, "control", "root");
+
+  ArmConfig config;
+  config.usb_serial = scalar_string(require_node(usb, "serial", "usb"), "usb.serial");
+  if(config.usb_serial.empty())
+  {
+    throw std::runtime_error("usb.serial must not be empty");
+  }
+
+  config.nom_baud = parse_uint32(require_node(usb, "nominal_baud", "usb"), "usb.nominal_baud");
+  config.dat_baud = parse_uint32(require_node(usb, "data_baud", "usb"), "usb.data_baud");
+
+  if(usb["canfd"])
+  {
+    config.canfd = usb["canfd"].as<bool>();
+  }
+  if(usb["brs"])
+  {
+    config.brs = usb["brs"].as<bool>();
+  }
+  if(usb["device_index"])
+  {
+    config.device_index = static_cast<int>(parse_uint32(usb["device_index"], "usb.device_index"));
+  }
+
+  config.loop_period = std::chrono::milliseconds(
+    parse_uint32(require_node(control, "loop_period_ms", "control"), "control.loop_period_ms"));
+
+  std::set<std::uint16_t> can_ids;
+  std::set<std::uint16_t> mst_ids;
+
+  const bool has_left = static_cast<bool>(root["left"]);
+  const bool has_right = static_cast<bool>(root["right"]);
+  const bool has_legacy_motors = static_cast<bool>(root["motors"]);
+
+  if(has_left || has_right)
+  {
+    if(has_legacy_motors)
+    {
+      throw std::runtime_error(
+        "config cannot have both root motors: and left:/right: limbs");
+    }
+    if(has_left)
+    {
+      const auto left = root["left"];
+      config.left.begin = config.motors.size();
+      if(left["motors"])
+      {
+        parse_motors_sequence(
+          left["motors"], "left.motors", config.motors, can_ids, mst_ids);
+      }
+      config.left.count = config.motors.size() - config.left.begin;
+      if(config.left.count == 0)
+      {
+        throw std::runtime_error("left.motors must not be empty when left: is present");
+      }
+      if(left["gravity"])
+      {
+        config.left.gravity =
+          parse_gravity(left["gravity"], "left.gravity", config.left.count);
+      }
+    }
+    if(has_right)
+    {
+      const auto right = root["right"];
+      config.right.begin = config.motors.size();
+      if(right["motors"])
+      {
+        parse_motors_sequence(
+          right["motors"], "right.motors", config.motors, can_ids, mst_ids);
+      }
+      config.right.count = config.motors.size() - config.right.begin;
+      if(config.right.count == 0)
+      {
+        throw std::runtime_error("right.motors must not be empty when right: is present");
+      }
+      if(right["gravity"])
+      {
+        config.right.gravity =
+          parse_gravity(right["gravity"], "right.gravity", config.right.count);
+      }
+    }
+  }
+  else
+  {
+    // Legacy: root motors: + optional root gravity: → all left.
+    const auto motors = require_node(root, "motors", "root");
+    config.left.begin = 0;
+    parse_motors_sequence(motors, "motors", config.motors, can_ids, mst_ids);
+    config.left.count = config.motors.size();
+    if(root["gravity"])
+    {
+      config.left.gravity =
+        parse_gravity(root["gravity"], "gravity", config.left.count);
+    }
   }
 
   if(config.motors.empty())
   {
     throw std::runtime_error("motors must contain at least one motor");
-  }
-
-  // Optional gravity section (coupled only). Defaults: disabled.
-  if(root["gravity"])
-  {
-    const auto gravity = root["gravity"];
-    if(gravity["enabled"])
-    {
-      config.gravity.enabled = gravity["enabled"].as<bool>();
-    }
-    if(gravity["scale"])
-    {
-      config.gravity.scale = gravity["scale"].as<double>();
-    }
-    if(gravity["use_measured_q"])
-    {
-      config.gravity.use_measured_q = gravity["use_measured_q"].as<bool>();
-    }
-    if(gravity["mode"])
-    {
-      const std::string mode = gravity["mode"].as<std::string>();
-      if(mode != "coupled")
-      {
-        throw std::runtime_error(
-          "gravity.mode must be 'coupled' (decoupled mode has been removed)");
-      }
-    }
-    if(gravity["joints"])
-    {
-      throw std::runtime_error(
-        "gravity.joints is no longer supported; use gravity.coupled only");
-    }
-    if(gravity["coupled"])
-    {
-      const auto coupled = gravity["coupled"];
-      if(!coupled["basis"] || !coupled["basis"].IsSequence())
-      {
-        throw std::runtime_error("gravity.coupled.basis must be a sequence");
-      }
-      if(!coupled["weights"] || !coupled["weights"].IsSequence())
-      {
-        throw std::runtime_error("gravity.coupled.weights must be a sequence");
-      }
-      CoupledGravityParam cp;
-      for(std::size_t k = 0; k < coupled["basis"].size(); ++k)
-      {
-        cp.basis.push_back(coupled["basis"][k].as<std::string>());
-      }
-      if(cp.basis.empty())
-      {
-        throw std::runtime_error("gravity.coupled.basis must not be empty");
-      }
-      if(coupled["weights"].size() != config.motors.size())
-      {
-        throw std::runtime_error(
-          "gravity.coupled.weights length must match motors length");
-      }
-      for(std::size_t j = 0; j < coupled["weights"].size(); ++j)
-      {
-        const auto row = coupled["weights"][j];
-        if(!row.IsSequence() || row.size() != cp.basis.size())
-        {
-          throw std::runtime_error(
-            "gravity.coupled.weights[" + std::to_string(j) +
-            "] must be a sequence of length basis");
-        }
-        std::vector<double> w;
-        w.reserve(cp.basis.size());
-        for(std::size_t k = 0; k < row.size(); ++k)
-        {
-          w.push_back(row[k].as<double>());
-        }
-        cp.weights.push_back(std::move(w));
-      }
-      config.gravity.coupled = std::move(cp);
-    }
-    if(config.gravity.enabled &&
-       (config.gravity.coupled.basis.empty() || config.gravity.coupled.weights.empty()))
-    {
-      throw std::runtime_error(
-        "gravity.enabled is true but gravity.coupled basis/weights are missing");
-    }
   }
 
   return config;

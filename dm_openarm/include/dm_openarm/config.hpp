@@ -23,8 +23,17 @@ struct GravityConfig {
   double scale{1.0};
   /// If true, g(q) uses measured joint positions; else uses MIT command q.
   bool use_measured_q{true};
-  /// Coupled gravity only: basis + weights[n_motors][K].
+  /// Coupled gravity only: basis + weights[n_limb_joints][K].
   CoupledGravityParam coupled;
+};
+
+/// One side of a dual-arm bus: contiguous slice into ArmConfig::motors.
+struct LimbSpec {
+  std::size_t begin{0};
+  std::size_t count{0};
+  GravityConfig gravity;
+
+  bool present() const noexcept { return count > 0; }
 };
 
 struct ArmConfig {
@@ -36,8 +45,13 @@ struct ArmConfig {
   bool brs{false};
   int device_index{0};
   std::chrono::milliseconds loop_period{1};
+  /// Flattened motor table: left motors then right motors.
   std::vector<MotorConfig> motors;
-  GravityConfig gravity;
+  LimbSpec left;
+  LimbSpec right;
+
+  /// Convenience: true if both limbs present.
+  bool is_dual() const noexcept { return left.present() && right.present(); }
 };
 
 }  // namespace dm_openarm

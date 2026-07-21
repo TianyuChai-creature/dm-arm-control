@@ -25,6 +25,7 @@ from pathlib import Path
 from dm_openarm import Arm
 
 CONFIG = "dm_openarm/config/arm_5dof.yaml"
+# Dual-arm: dm_openarm/config/arm_dual_10dof.yaml + --side left|right
 
 # Slightly firmer than soft-hold defaults so lag does not hide the path.
 KP_WRIST = 14.0
@@ -53,12 +54,12 @@ def _gains(can_ids: list[int], kp_scale: float) -> tuple[list[float], list[float
 
 
 def _apply_deltas(q0: list[float], can_ids: list[int], delta: float) -> list[float]:
-    """Elbow +, shoulder − (most visible on a hanging 5-DoF)."""
+    """Elbow +, shoulder − (left 0x04/0x05 or right 0x24/0x25)."""
     q = list(q0)
     for i, cid in enumerate(can_ids):
-        if cid == 0x04:
+        if cid in (0x04, 0x24):
             q[i] = q0[i] + delta
-        elif cid == 0x05:
+        elif cid in (0x05, 0x25):
             q[i] = q0[i] - delta
     return q
 
@@ -66,6 +67,12 @@ def _apply_deltas(q0: list[float], can_ids: list[int], delta: float) -> list[flo
 def main() -> int:
     parser = argparse.ArgumentParser(description="Visible joint trajectory demo with gravity")
     parser.add_argument("--config", default=CONFIG)
+    parser.add_argument(
+        "--side",
+        choices=("left", "right"),
+        default="left",
+        help="which limb (dual-arm configs; default left)",
+    )
     parser.add_argument("--scale", type=float, default=None, help="gravity scale override")
     parser.add_argument(
         "--duration",
@@ -130,41 +137,51 @@ def main() -> int:
     arm = Arm.from_yaml(str(cfg))
     try:
         arm.enable()
-        states = arm.states()
+        limb = arm.left if args.side == "left" else arm.right
+        if limb is None or not limb.present:
+            print(f"side {args.side} not configured in {cfg}")
+            return 1
+
+        states = limb.states()
         can_ids = [int(s.can_id) for s in states]
         kp_list, kd_list = _gains(can_ids, args.kp_scale)
 
-        # Seed hold at current pose
-        for s, kp, kd in zip(states, kp_list, kd_list):
+        # Seed hold on this limb (and soft-hold other side at current if dual)
+        for s in arm.states():
+            kp = 10.0 if int(s.can_id) in (0x04, 0x05, 0x24, 0x25) else 12.0
+            kd = 0.8 if int(s.can_id) in (0x04, 0x05, 0x24, 0x25) else 0.6
             arm.mit(s.can_id, kp=kp, kd=kd, q=s.position, dq=0.0, tau=0.0)
 
         arm.start_mit_loop(hz=1000.0, home=False)
         if args.no_gravity:
-            arm.set_gravity_enabled(False)
+            limb.set_gravity_enabled(False)
         else:
-            arm.set_gravity_enabled(True)
+            limb.set_gravity_enabled(True)
         if args.scale is not None:
-            arm.set_gravity_scale(args.scale)
+            limb.set_gravity_scale(args.scale)
 
-        states = arm.states()
+        states = limb.states()
         q0 = [float(s.position) for s in states]
-        can_ids = [int(s.can_id) for s in states]
+        can_ids = list(limb.can_ids)
         q_goal = _apply_deltas(q0, can_ids, args.delta)
         kp_list, kd_list = _gains(can_ids, args.kp_scale)
 
         print("=== move_joints demo (visible shoulder/elbow step) ===")
-        print(f"gravity={arm.gravity_enabled()} scale={arm.gravity_scale()}")
+        print(f"side={args.side} dual={arm.is_dual()}")
+        print(f"gravity={limb.gravity_enabled()} scale={limb.gravity_scale()}")
         print(f"q0    {_fmt_q(q0)}")
         print(f"qgoal {_fmt_q(q_goal)}")
+        elbow_id = 0x04 if args.side == "left" else 0x24
+        shoulder_id = 0x05 if args.side == "left" else 0x25
         print(
-            f"Δelbow=+{args.delta:.2f} rad ({deg:.0f}°), "
-            f"Δshoulder=-{args.delta:.2f} rad ({deg:.0f}°)"
+            f"Δelbow(0x{elbow_id:02X})=+{args.delta:.2f} rad ({deg:.0f}°), "
+            f"Δshoulder(0x{shoulder_id:02X})=-{args.delta:.2f} rad ({deg:.0f}°)"
         )
         print(
             f"duration={args.duration}s/leg  rate={args.rate}Hz  "
             f"round_trip={not args.one_way}  kp_scale={args.kp_scale}"
         )
-        print("注意看肩(0x05)与肘(0x04)；腕部应几乎不动。")
+        print(f"注意看 {args.side} 肩/肘；对侧应保持不动。")
         if not args.yes:
             ans = input("Enter 开始 / q 放弃: ").strip().lower()
             if ans in ("q", "quit", "n", "no"):
@@ -173,7 +190,7 @@ def main() -> int:
 
         def do_leg(label: str, q_target: list[float]) -> None:
             print(f"\n-- {label} --")
-            result = arm.move_joints(
+            result = limb.move_joints(
                 q_target,
                 duration=args.duration,
                 rate_hz=args.rate,

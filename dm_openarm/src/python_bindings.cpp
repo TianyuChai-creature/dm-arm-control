@@ -56,6 +56,12 @@ NB_MODULE(_core, m)
     .def_rw("can_id", &dm_openarm::MotorConfig::can_id)
     .def_rw("mst_id", &dm_openarm::MotorConfig::mst_id);
 
+  nb::class_<dm_openarm::LimbSpec>(m, "LimbSpec")
+    .def(nb::init<>())
+    .def_rw("begin", &dm_openarm::LimbSpec::begin)
+    .def_rw("count", &dm_openarm::LimbSpec::count)
+    .def("present", &dm_openarm::LimbSpec::present);
+
   nb::class_<dm_openarm::ArmConfig>(m, "ArmConfig")
     .def(nb::init<>())
     .def_rw("usb_serial", &dm_openarm::ArmConfig::usb_serial)
@@ -64,7 +70,10 @@ NB_MODULE(_core, m)
     .def_rw("canfd", &dm_openarm::ArmConfig::canfd)
     .def_rw("brs", &dm_openarm::ArmConfig::brs)
     .def_rw("device_index", &dm_openarm::ArmConfig::device_index)
-    .def_rw("motors", &dm_openarm::ArmConfig::motors);
+    .def_rw("motors", &dm_openarm::ArmConfig::motors)
+    .def_rw("left", &dm_openarm::ArmConfig::left)
+    .def_rw("right", &dm_openarm::ArmConfig::right)
+    .def("is_dual", &dm_openarm::ArmConfig::is_dual);
 
   m.def(
     "load_arm_config",
@@ -121,7 +130,43 @@ NB_MODULE(_core, m)
       "gravity_use_measured_q",
       &dm_openarm::MitLoopController::gravity_use_measured_q)
     .def(
+      "set_limb_gravity_enabled",
+      &dm_openarm::MitLoopController::set_limb_gravity_enabled,
+      nb::arg("side"),
+      nb::arg("enabled"))
+    .def(
+      "limb_gravity_enabled",
+      &dm_openarm::MitLoopController::limb_gravity_enabled,
+      nb::arg("side"))
+    .def(
+      "set_limb_gravity_scale",
+      &dm_openarm::MitLoopController::set_limb_gravity_scale,
+      nb::arg("side"),
+      nb::arg("scale"))
+    .def(
+      "limb_gravity_scale",
+      &dm_openarm::MitLoopController::limb_gravity_scale,
+      nb::arg("side"))
+    .def(
+      "set_limb_gravity_use_measured_q",
+      &dm_openarm::MitLoopController::set_limb_gravity_use_measured_q,
+      nb::arg("side"),
+      nb::arg("use_measured"))
+    .def(
+      "limb_gravity_use_measured_q",
+      &dm_openarm::MitLoopController::limb_gravity_use_measured_q,
+      nb::arg("side"))
+    .def(
+      "limb_gravity_torques",
+      &dm_openarm::MitLoopController::limb_gravity_torques,
+      nb::arg("side"),
+      nb::arg("q"))
+    .def(
       "gravity_torques",
       &dm_openarm::MitLoopController::gravity_torques,
-      nb::arg("q"));
+      nb::arg("q"))
+    .def("left_begin", &dm_openarm::MitLoopController::left_begin)
+    .def("left_count", &dm_openarm::MitLoopController::left_count)
+    .def("right_begin", &dm_openarm::MitLoopController::right_begin)
+    .def("right_count", &dm_openarm::MitLoopController::right_count);
 }

@@ -115,12 +115,16 @@ void test_default_config_loads()
   assert(config.device_index == 0);
   assert(config.loop_period == std::chrono::milliseconds(1));
   assert(config.motors.size() == 5);
-  assert(config.gravity.enabled == true);
-  assert(std::abs(config.gravity.scale - 0.9) < 1e-9);
-  assert(config.gravity.use_measured_q == true);
-  assert(config.gravity.coupled.basis.size() == 13);
-  assert(config.gravity.coupled.weights.size() == 5);
-  assert(config.gravity.coupled.weights[4].size() == 13);
+  assert(config.left.present());
+  assert(config.left.begin == 0);
+  assert(config.left.count == 5);
+  assert(!config.right.present());
+  assert(config.left.gravity.enabled == true);
+  assert(std::abs(config.left.gravity.scale - 0.9) < 1e-9);
+  assert(config.left.gravity.use_measured_q == true);
+  assert(config.left.gravity.coupled.basis.size() == 13);
+  assert(config.left.gravity.coupled.weights.size() == 5);
+  assert(config.left.gravity.coupled.weights[4].size() == 13);
 
   assert(config.motors[0].name == "end_effector");
   assert(config.motors[0].model == dm_openarm::MotorModel::DM4310);
@@ -194,6 +198,26 @@ void test_unknown_model_fails_with_dm8009p_hint()
     "use DM8009");
 }
 
+void test_dual_arm_config_loads()
+{
+  const auto path = project_root() / "config" / "arm_dual_10dof.yaml";
+  if(!std::filesystem::exists(path))
+  {
+    return;  // optional in some trees
+  }
+  const auto config = dm_openarm::load_arm_config(path);
+  assert(config.motors.size() == 10);
+  assert(config.is_dual());
+  assert(config.left.begin == 0 && config.left.count == 5);
+  assert(config.right.begin == 5 && config.right.count == 5);
+  assert(config.motors[0].can_id == 0x01);
+  assert(config.motors[5].can_id == 0x21);
+  assert(config.motors[9].can_id == 0x25);
+  assert(config.left.gravity.enabled == true);
+  assert(config.right.gravity.enabled == false);
+  assert(config.left.gravity.coupled.weights.size() == 5);
+}
+
 }  // namespace
 
 int main()
@@ -205,6 +229,7 @@ int main()
   test_empty_usb_serial_fails();
   test_non_mit_mode_fails();
   test_unknown_model_fails_with_dm8009p_hint();
+  test_dual_arm_config_loads();
 
   return 0;
 }

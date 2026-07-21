@@ -1,0 +1,99 @@
+# Dual arm on one classic-CAN 1M bus.
+# left:  0x01–0x05 / mst 0x11–0x15 (distal wrist → shoulder)
+# right: 0x21–0x25 / mst 0x31–0x35 (same order)
+usb:
+  serial: "52A871B1AA5EF4E239371A5083463F26"
+  nominal_baud: 1000000
+  data_baud: 1000000
+  canfd: false
+  brs: false
+  device_index: 0
+
+control:
+  loop_period_ms: 1
+
+left:
+  gravity:
+    enabled: true
+    scale: 0.9
+    use_measured_q: true
+    coupled:
+      basis:
+        - one
+        - sin_q0
+        - sin_q1
+        - sin_q2
+        - sin_q3
+        - sin_q4
+        - cos_q0
+        - cos_q1
+        - cos_q2
+        - cos_q3
+        - cos_q4
+        - sin_q3_q4
+        - cos_q3_q4
+      weights:
+        - [-0.01622449, 0.00011371, 0.00100097, 0.00082808, 0.00081431, -0.00342483, -0.00225606, 0.00158596, 0.00105432, -0.00665871, -0.00012158, 0.00331534, 0.00392402]
+        - [-0.02282283, 0.00026641, 0.00887637, -0.00056334, -0.00018213, 0.00528746, -0.00005622, 0.00870899, 0.00290948, 0.00596525, -0.00087251, -0.00571778, -0.00589718]
+        - [0.00014966, -0.00041208, 0.00482442, -0.00056366, -0.00139086, -0.01374422, 0.00021561, 0.00396011, 0.00084746, -0.01439303, -0.00140572, 0.01279399, 0.00331081]
+        - [2.35762738, -0.04977786, 0.30409111, -0.09802127, 1.49033119, -2.24259975, 0.14883745, -0.06095485, 0.08647771, -2.43776476, -2.25963156, 2.16067594, 2.17817849]
+        - [1.50502837, 0.03547256, -0.90060799, 0.10636322, -0.11473113, 1.33769400, -0.23229169, -0.80629769, -0.45297887, -0.20032326, 1.60056788, 2.08508592, -1.52235983]
+  motors:
+    - name: L_end_effector
+      model: DM4310
+      mode: MIT
+      can_id: 0x01
+      mst_id: 0x11
+    - name: L_wrist_2
+      model: DM4310
+      mode: MIT
+      can_id: 0x02
+      mst_id: 0x12
+    - name: L_wrist_3
+      model: DM4310
+      mode: MIT
+      can_id: 0x03
+      mst_id: 0x13
+    - name: L_elbow
+      model: DM8009
+      mode: MIT
+      can_id: 0x04
+      mst_id: 0x14
+    - name: L_shoulder
+      model: DM8009
+      mode: MIT
+      can_id: 0x05
+      mst_id: 0x15
+
+right:
+  # Right gravity not identified yet — keep disabled.
+  gravity:
+    enabled: false
+    scale: 0.9
+    use_measured_q: true
+  motors:
+    - name: R_end_effector
+      model: DM4310
+      mode: MIT
+      can_id: 0x21
+      mst_id: 0x31
+    - name: R_wrist_2
+      model: DM4310
+      mode: MIT
+      can_id: 0x22
+      mst_id: 0x32
+    - name: R_wrist_3
+      model: DM4310
+      mode: MIT
+      can_id: 0x23
+      mst_id: 0x33
+    - name: R_elbow
+      model: DM8009
+      mode: MIT
+      can_id: 0x24
+      mst_id: 0x34
+    - name: R_shoulder
+      model: DM8009
+      mode: MIT
+      can_id: 0x25
+      mst_id: 0x35

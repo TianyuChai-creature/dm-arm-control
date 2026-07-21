@@ -1,6 +1,7 @@
 from . import _core
 from ._core import ArmConfig, ControlMode, MitCommand, MotorConfig, MotorModel, MotorState
 from .arm import Arm, MoveResult
+from .limb import Limb
 from .gravity_fit import (
     DEFAULT_COUPLED_BASIS,
     CoupledFitResult,
@@ -17,6 +18,7 @@ __all__ = [
     "Arm",
     "ArmConfig",
     "ControlMode",
+    "Limb",
     "MitCommand",
     "MotorConfig",
     "MotorModel",

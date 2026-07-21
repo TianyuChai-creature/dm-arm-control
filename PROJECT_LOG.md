@@ -146,3 +146,10 @@ python_script/                   # 独立 Python 脚本
 - 重力：仍用 C++ 耦合 `apply_gravity`；无负载模型
 - 单测：`tests/test_trajectory.py`、`tests/test_python_api.py`
 
+### 2026-07-21 — 左右臂分离（分支 feature/dual-arm-limbs）
+
+- 配置：`left:` / `right:` 或旧版根级 `motors`（→ 全归 left）
+- C++：按侧 `GravityModel`；`arm_dual_10dof.yaml` 左重力 on、右 off
+- Python：`Arm.left` / `Arm.right`（`Limb`）：`mit` / `move_joints` / 重力
+- 设备级：`enable` / `start_mit_loop` 共享总线；双臂禁止根级 `move_joints`
+- 扫描：`python_script/scan_motors_online.py` 10/10 ONLINE

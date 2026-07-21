@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Mapping, Sequence
 
 from . import _core
-from .trajectory import plan_joint_trajectory
+from .limb import Limb
 
 
 @dataclass(frozen=True)
@@ -20,39 +20,54 @@ class MoveResult:
     max_abs_err: float
 
 
-def _default_gains(n: int) -> tuple[list[float], list[float]]:
-    """Per-joint kp/kd: wrist-class softer large motors last if n==5."""
-    kp = [12.0] * n
-    kd = [0.6] * n
-    if n >= 5:
-        kp[3] = kp[4] = 10.0
-        kd[3] = kd[4] = 0.8
-    elif n >= 2:
-        # treat last joint(s) as larger if unknown
-        kp[-1] = 10.0
-        kd[-1] = 0.8
-    return kp, kd
-
-
-def _as_gain_list(value: float | Sequence[float] | None, n: int, default: list[float]) -> list[float]:
-    if value is None:
-        return list(default)
-    if isinstance(value, (int, float)):
-        return [float(value)] * n
-    out = [float(x) for x in value]
-    if len(out) != n:
-        raise ValueError(f"gain length {len(out)} != n_joints {n}")
-    return out
-
-
 class Arm:
+    """Device-level handle: one bus + one MIT loop; limbs via ``left`` / ``right``.
+
+    Prefer::
+
+        arm.left.move_joints(...)
+        arm.right.mit(0x21, kp=12, kd=0.6, q=0.1)
+
+    Root ``mit`` / ``states`` still address the full bus. Root ``move_joints``
+    only works for single-arm (left-only) configs.
+    """
+
     def __init__(self, config: _core.ArmConfig):
+        self._config = config
         self._arm = _core.DmArm(config)
         self._loop = _core.MitLoopController(self._arm)
+
+        motors = list(config.motors)
+        lb = int(self._loop.left_begin())
+        lc = int(self._loop.left_count())
+        rb = int(self._loop.right_begin())
+        rc = int(self._loop.right_count())
+
+        def make(side: str, begin: int, count: int) -> Limb | None:
+            if count <= 0:
+                return None
+            slice_m = motors[begin : begin + count]
+            return Limb(
+                self,
+                side,
+                [int(m.can_id) for m in slice_m],
+                [str(m.name) for m in slice_m],
+            )
+
+        self.left: Limb | None = make("left", lb, lc)
+        self.right: Limb | None = make("right", rb, rc)
 
     @classmethod
     def from_yaml(cls, path: str | Path) -> "Arm":
         return cls(_core.load_arm_config(str(path)))
+
+    def is_dual(self) -> bool:
+        return (
+            self.left is not None
+            and self.left.present
+            and self.right is not None
+            and self.right.present
+        )
 
     def enable(self) -> None:
         self._arm.connect()
@@ -62,6 +77,7 @@ class Arm:
         self._arm.disable()
 
     def states(self):
+        """All motors on the bus (left then right). Prefer limb.states()."""
         return self._arm.states()
 
     def set_zero(self, can_id: int, persist: bool = True) -> None:
@@ -77,12 +93,9 @@ class Arm:
         *,
         home: bool = True,
     ) -> None:
-        """Start the MIT control loop.
+        """Start the shared MIT loop for **all** motors on the bus.
 
-        If *home* is True (default), all motors are first commanded to
-        ``q=0`` and this method blocks until they are near zero or
-        *zero_timeout* elapses. Set ``home=False`` to hold current
-        commands (e.g. gravity-compensated hold at the present pose).
+        Prefer ``home=False`` on dual-arm stations (homing zeros every joint).
         """
         self._loop.start(hz)
 
@@ -95,7 +108,7 @@ class Arm:
             for _ in states
         ])
 
-        pos_tol = 0.05  # radians
+        pos_tol = 0.05
         deadline = time.monotonic() + zero_timeout
         while True:
             states = self.states()
@@ -116,39 +129,33 @@ class Arm:
     def commands(self):
         return self._loop.commands()
 
-    # ── Gravity compensation ──────────────────────────────────────────
+    # ── Gravity (legacy = left limb) ─────────────────────────────────
 
     def set_gravity_enabled(self, enabled: bool) -> None:
-        """Enable/disable gravity feedforward inside the MIT loop.
-
-        When enabled: ``tau_sent = cmd.tau + scale * g(q)``.
-        """
+        """Legacy: left gravity only. Prefer ``arm.left.set_gravity_enabled``."""
         self._loop.set_gravity_enabled(enabled)
 
     def gravity_enabled(self) -> bool:
         return self._loop.gravity_enabled()
 
     def set_gravity_scale(self, scale: float) -> None:
-        """Scale factor on gravity torques (1.0 = full model)."""
         self._loop.set_gravity_scale(scale)
 
     def gravity_scale(self) -> float:
         return self._loop.gravity_scale()
 
     def set_gravity_use_measured_q(self, use_measured: bool) -> None:
-        """If True, g(q) uses measured positions; else MIT command q."""
         self._loop.set_gravity_use_measured_q(use_measured)
 
     def gravity_torques(self, q: list[float] | None = None) -> list[float]:
-        """Return gravity torques for joint positions (motor order).
-
-        If *q* is None, use current measured positions from :meth:`states`.
-        """
+        """Legacy left-limb gravity. Prefer ``arm.left.gravity_torques``."""
         if q is None:
-            q = [s.position for s in self.states()]
+            if self.left is None:
+                raise RuntimeError("no left arm")
+            q = [s.position for s in self.left.states()]
         return list(self._loop.gravity_torques(q))
 
-    # ── The unified MIT API ───────────────────────────────────────────
+    # ── Bus-level MIT ────────────────────────────────────────────────
 
     def mit(
         self,
@@ -160,24 +167,7 @@ class Arm:
         dq: float = 0.0,
         tau: float = 0.0,
     ) -> None:
-        """Send MIT command(s) with full parameter control.
-
-        **Single motor** — pass CAN ID + keyword arguments::
-
-            arm.mit(0x01, kp=12.0, kd=0.6, q=0.8, dq=0.0, tau=0.5)
-
-        **Multiple motors** — pass a dict of CAN ID → MitCommand::
-
-            from dm_openarm import MitCommand
-            arm.mit({
-                0x01: MitCommand(kp=12.0, kd=0.6, q=0.8),
-                0x04: MitCommand(kp=10.0, kd=0.8, q=0.5, tau=1.0),
-            })
-
-        Non-targeted motors keep whatever command was previously set.
-        When gravity compensation is enabled, ``tau`` is *additional*
-        feedforward on top of ``g(q)``.
-        """
+        """Bus-level MIT (any can_id). Prefer ``arm.left.mit`` / ``arm.right.mit``."""
         if isinstance(target, dict):
             for can_id, cmd in target.items():
                 self._loop.set_command(can_id, cmd)
@@ -197,7 +187,6 @@ class Arm:
         dq: float = 0.0,
         tau: float = 0.0,
     ) -> None:
-        """Instantly set one motor's MIT target (no interpolation, non-blocking)."""
         self.mit(can_id, kp=kp, kd=kd, q=q, dq=dq, tau=tau)
 
     def hold_at(
@@ -208,7 +197,6 @@ class Arm:
         kp: float = 12.0,
         kd: float = 0.6,
     ) -> None:
-        """Hold one motor at *q* with soft PD (alias of :meth:`move_to`, dq=0)."""
         self.move_to(can_id, q=q, kp=kp, kd=kd, dq=0.0, tau=0.0)
 
     def move_joints(
@@ -223,104 +211,24 @@ class Arm:
         settle_s: float = 0.2,
         gravity: bool | None = None,
     ) -> MoveResult:
-        """Time-boxed multi-joint rest-to-rest move with quintic (q, dq).
-
-        Streams targets into the running MIT loop; gravity (if enabled) is still
-        applied in C++ each cycle. Completion is **by planned duration**, not
-        by position tolerance — soft MIT + residual gravity may leave a steady
-        lag. Returns a :class:`MoveResult` with measured error for logging.
-        """
-        if not self.mit_loop_running:
-            raise RuntimeError("MIT loop is not running; call start_mit_loop() first")
-        if rate_hz <= 0.0:
-            raise ValueError("rate_hz must be > 0")
-        if settle_s < 0.0:
-            raise ValueError("settle_s must be >= 0")
-
-        states = self.states()
-        can_ids = [int(s.can_id) for s in states]
-        q0 = [float(s.position) for s in states]
-        n = len(can_ids)
-        if n == 0:
-            raise RuntimeError("no motors in state snapshot")
-
-        qf = list(q0)
-        if isinstance(q_goal, Mapping):
-            id_to_idx = {cid: i for i, cid in enumerate(can_ids)}
-            for cid, val in q_goal.items():
-                if int(cid) not in id_to_idx:
-                    raise ValueError(f"unknown can_id in q_goal: {cid}")
-                qf[id_to_idx[int(cid)]] = float(val)
-        else:
-            goal_list = [float(x) for x in q_goal]
-            if len(goal_list) != n:
-                raise ValueError(
-                    f"q_goal length {len(goal_list)} must match motor count {n}"
-                )
-            qf = goal_list
-
-        if gravity is not None:
-            self.set_gravity_enabled(bool(gravity))
-
-        traj = plan_joint_trajectory(q0, qf, duration=duration, vmax=vmax)
-        kp_def, kd_def = _default_gains(n)
-        kp_list = _as_gain_list(kp, n, kp_def)
-        kd_list = _as_gain_list(kd, n, kd_def)
-
-        dt = 1.0 / rate_hz
-        t0 = time.monotonic()
-        next_tick = t0
-        T = traj.duration
-
-        while True:
-            now = time.monotonic()
-            t = now - t0
-            if t >= T:
-                break
-            qs, dqs = traj.sample(t)
-            cmd_map = {
-                can_ids[i]: _core.MitCommand(
-                    kp=kp_list[i],
-                    kd=kd_list[i],
-                    q=qs[i],
-                    dq=dqs[i],
-                    tau=0.0,
-                )
-                for i in range(n)
-            }
-            self.mit(cmd_map)
-            next_tick += dt
-            sleep_s = next_tick - time.monotonic()
-            if sleep_s > 0.0:
-                time.sleep(sleep_s)
-
-        # Final hold at planned goal (dq = 0).
-        hold_map = {
-            can_ids[i]: _core.MitCommand(
-                kp=kp_list[i],
-                kd=kd_list[i],
-                q=qf[i],
-                dq=0.0,
-                tau=0.0,
+        """Single-arm only (delegates to left). Dual-arm: use limb APIs."""
+        if self.right is not None and self.right.present:
+            raise RuntimeError(
+                "dual-arm config: use arm.left.move_joints(...) or "
+                "arm.right.move_joints(...)"
             )
-            for i in range(n)
-        }
-        self.mit(hold_map)
-        if settle_s > 0.0:
-            time.sleep(settle_s)
-
-        meas = [float(s.position) for s in self.states()]
-        err = [m - c for m, c in zip(meas, qf)]
-        max_abs = max((abs(e) for e in err), default=0.0)
-        return MoveResult(
-            duration=T,
-            q_cmd=list(qf),
-            q_meas=meas,
-            err=err,
-            max_abs_err=max_abs,
+        if self.left is None or not self.left.present:
+            raise RuntimeError("no left arm configured for move_joints")
+        return self.left.move_joints(
+            q_goal,
+            duration=duration,
+            vmax=vmax,
+            rate_hz=rate_hz,
+            kp=kp,
+            kd=kd,
+            settle_s=settle_s,
+            gravity=gravity,
         )
-
-    # ── Context manager ───────────────────────────────────────────────
 
     def __enter__(self) -> "Arm":
         self.enable()
