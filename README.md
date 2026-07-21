@@ -7,18 +7,17 @@
 
 - C++：打开设备、发 MIT 帧、读反馈、1 kHz 后台循环（可叠加 \(g(q)\)）
 - Python：`Arm` 高层 API（使能、状态、MIT、设零、重力开关/比例）
-- 配置：`dm_openarm/config/arm.yaml`（含工位辨识后的 gravity 段）
+- 配置：`dm_openarm/config/arm.yaml`（**唯一** dual 布局：`left:` + `right:`）
 
 更细的包内说明见 [`dm_openarm/README.md`](dm_openarm/README.md)。  
-工位硬件实测记录见 [`resources/u2canfd/HARDWARE_CONFIG.md`](resources/u2canfd/HARDWARE_CONFIG.md)。  
-重力原始拟合结果备份见仓库根目录 [`gravity_identified.yaml`](gravity_identified.yaml)。
+工位硬件实测记录见 [`resources/u2canfd/HARDWARE_CONFIG.md`](resources/u2canfd/HARDWARE_CONFIG.md)。
 
 ## 目录结构
 
 | 路径 | 说明 |
 | --- | --- |
 | `dm_openarm/` | 库源码、Python 绑定、配置、测试、C++ 示例 |
-| `dm_openarm/config/arm.yaml` | 默认 5 轴配置 |
+| `dm_openarm/config/arm.yaml` | 双臂站位配置（左 0x01–0x05 + 右 0x21–0x25） |
 | `dm_openarm/third_party/damiao_sdk/lib/libdm_device.so` | 达妙 dmcan 设备库（与 u2canfd 相同） |
 | `python_script/` | 根目录可运行 Python 脚本 |
 | `resources/u2canfd/` | 实测可用的 Python 参考例程与硬件记录 |
@@ -308,9 +307,9 @@ arm.disable()
 ```
 
 扫描：`python python_script/scan_motors_online.py`  
-配置：`dm_openarm/config/arm.yaml`（旧 `arm.yaml` 仍为单左臂）。
+唯一配置：`dm_openarm/config/arm.yaml`（强制 `left:` + `right:`）。
 
-右臂重力辨识后，把 `gravity_coupled_identified_right.yaml` 中的 `right.gravity` 合并进双臂配置，并 `arm.right.set_gravity_enabled(True)` 验证。
+右臂重力辨识后，把 `gravity_coupled_identified_right.yaml` 合并进 `right.gravity`，`arm.right.set_gravity_enabled(True)` 验证。
 
 ## 关节轨迹跟踪
 
