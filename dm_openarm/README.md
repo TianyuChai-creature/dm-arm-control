@@ -7,7 +7,7 @@ Python API。底层复用达妙 USB-CANFD SDK，当前版本只封装 MIT 模式
 
 - C++ 后台线程以 1 kHz 发送 MIT 控制帧。
 - Python 只负责更新每个电机的目标位置、增益和前馈力矩。
-- 电机配置从 `config/arm_5dof.yaml` 读取。
+- 电机配置从 `config/arm.yaml` 读取。
 
 ## 当前硬件配置
 
@@ -42,7 +42,7 @@ Python API。底层复用达妙 USB-CANFD SDK，当前版本只封装 MIT 模式
 默认配置文件：
 
 ```text
-config/arm_5dof.yaml
+config/arm.yaml
 ```
 
 如果 USB-CANFD 适配器 SN、波特率或电机 ID 不同，先修改这个 YAML。修改
@@ -119,7 +119,7 @@ Directory '.' is not installable. Neither 'setup.py' nor 'pyproject.toml' found.
 ```python
 from dm_openarm import Arm
 
-arm = Arm.from_yaml("dm_openarm/config/arm_5dof.yaml")
+arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
 
 try:
     arm.enable()
@@ -135,13 +135,13 @@ finally:
 如果脚本在仓库根目录运行，配置路径使用：
 
 ```python
-Arm.from_yaml("dm_openarm/config/arm_5dof.yaml")
+Arm.from_yaml("dm_openarm/config/arm.yaml")
 ```
 
 如果脚本在 `dm_openarm/` 包目录内运行，配置路径使用：
 
 ```python
-Arm.from_yaml("config/arm_5dof.yaml")
+Arm.from_yaml("config/arm.yaml")
 ```
 
 ## Python API
@@ -151,7 +151,7 @@ Arm.from_yaml("config/arm_5dof.yaml")
 ```python
 from dm_openarm import Arm
 
-arm = Arm.from_yaml("dm_openarm/config/arm_5dof.yaml")
+arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
 ```
 
 `Arm.from_yaml(path)` 会读取 YAML 配置，但不会连接硬件，也不会使能电机。
@@ -353,25 +353,25 @@ ctest --output-on-failure
 ```bash
 cd dm_openarm/build
 
-./check_comm ../config/arm_5dof.yaml
-./enable_disable ../config/arm_5dof.yaml
-./hold_position ../config/arm_5dof.yaml
-./set_zero_position ../config/arm_5dof.yaml all
-./arm_mit_control ../config/arm_5dof.yaml
+./check_comm ../config/arm.yaml
+./enable_disable ../config/arm.yaml
+./hold_position ../config/arm.yaml
+./set_zero_position ../config/arm.yaml all
+./arm_mit_control ../config/arm.yaml
 ```
 
 ### C++ 设零
 
 ```bash
-./set_zero_position ../config/arm_5dof.yaml all
-./set_zero_position ../config/arm_5dof.yaml 0x01
-./set_zero_position ../config/arm_5dof.yaml 1
+./set_zero_position ../config/arm.yaml all
+./set_zero_position ../config/arm.yaml 0x01
+./set_zero_position ../config/arm.yaml 1
 ```
 
 默认会保存到 flash。临时设零使用：
 
 ```bash
-./set_zero_position ../config/arm_5dof.yaml all --runtime-only
+./set_zero_position ../config/arm.yaml all --runtime-only
 ```
 
 ### C++ FIFO MIT 控制
@@ -379,7 +379,7 @@ cd dm_openarm/build
 启动：
 
 ```bash
-./arm_mit_control ../config/arm_5dof.yaml
+./arm_mit_control ../config/arm.yaml
 ```
 
 另一个终端发送命令：
@@ -425,7 +425,7 @@ Python 的 `arm.mit(...)` 不自动使用 FIFO 示例里的单步限制和斜坡
 
 int main()
 {
-  auto config = dm_openarm::load_arm_config("../config/arm_5dof.yaml");
+  auto config = dm_openarm::load_arm_config("../config/arm.yaml");
   dm_openarm::DmArm arm(config);
 
   arm.connect();

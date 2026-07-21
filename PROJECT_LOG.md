@@ -12,7 +12,7 @@ dm_openarm/
 ├── pyproject.toml              # Python 包构建配置
 ├── README.md                   # 项目说明
 ├── config/
-│   └── arm_5dof.yaml           # 机械臂配置文件
+│   └── arm.yaml           # 机械臂配置文件
 ├── examples/
 │   ├── arm_mit_control.cpp     # MIT 控制示例
 │   ├── check_comm.cpp          # 通讯检查示例
@@ -135,7 +135,7 @@ python_script/                   # 独立 Python 脚本
 
 - 删除解耦模式：`JointGravityParam` / `GravityMode` / `gravity.joints` / `mode: decoupled`
 - C++ / YAML / Python 辨识与文档统一为耦合单路径 \(\tau=W\phi(q)\)
-- 删除备份 `gravity_identified.yaml`；工位参数在 `arm_5dof.yaml` / `gravity_coupled_identified.yaml`
+- 删除备份 `gravity_identified.yaml`；工位参数在 `arm.yaml` / `gravity_coupled_identified.yaml`
 - 合并进入 `main`；轨迹跟踪为后续分支
 
 ### 2026-07-21 — 关节轨迹跟踪（分支 feature/trajectory-mit-gravity）
@@ -149,7 +149,7 @@ python_script/                   # 独立 Python 脚本
 ### 2026-07-21 — 左右臂分离（分支 feature/dual-arm-limbs）
 
 - 配置：`left:` / `right:` 或旧版根级 `motors`（→ 全归 left）
-- C++：按侧 `GravityModel`；`arm_dual_10dof.yaml` 左重力 on、右 off
+- C++：按侧 `GravityModel`；`arm.yaml` 左重力 on、右 off
 - Python：`Arm.left` / `Arm.right`（`Limb`）：`mit` / `move_joints` / 重力
 - 设备级：`enable` / `start_mit_loop` 共享总线；双臂禁止根级 `move_joints`
 - 扫描：`python_script/scan_motors_online.py` 10/10 ONLINE
@@ -159,3 +159,10 @@ python_script/                   # 独立 Python 脚本
 - `--side left|right` + `--config`；仅操作本侧，对侧软保持
 - 输出 `gravity_coupled_identified_{side}.yaml`（nested `left:`/`right:` 或单臂根 `gravity:`）
 - 大电机增益按 0x04/05/24/25 判定（修复右腕被当成大电机）
+
+### 2026-07-21 — 全站 dual-only
+
+- 唯一配置：`dm_openarm/config/arm.yaml`（删除 arm_5dof / arm_dual_10dof）
+- loader **强制** `left:` + `right:`；拒绝根级 `motors:` / `gravity:`
+- 脚本默认 arm.yaml；控制/重力/辨识一律 `--side left|right`
+- `Arm.move_joints` 根级移除，只用 `arm.left` / `arm.right`

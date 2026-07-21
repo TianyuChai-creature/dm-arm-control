@@ -8,7 +8,7 @@ from dm_openarm import Arm
 
 
 def main() -> int:
-    arm = Arm.from_yaml("dm_openarm/config/arm_5dof.yaml")
+    arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
     print("=== dm_openarm link_test ===", flush=True)
     try:
         arm.enable()

@@ -9,16 +9,10 @@
   q      — 放弃
 
 示例：
-  # 左臂（单臂配置默认）
   python python_script/identify_gravity.py --side left
+  python python_script/identify_gravity.py --side right
 
-  # 右臂（双臂配置）
-  python python_script/identify_gravity.py \\
-    --config dm_openarm/config/arm_dual_10dof.yaml --side right
-
-输出：
-  gravity_coupled_identified_left.yaml  /  _right.yaml
-  （片段可直接粘到 arm_dual 的 left:/right: 或旧版根 gravity:）
+输出 gravity_coupled_identified_{side}.yaml → 合并进 arm.yaml 对应侧 gravity:
 """
 from __future__ import annotations
 
@@ -34,8 +28,7 @@ from dm_openarm.gravity_fit import (
 )
 from dm_openarm.limb import Limb
 
-DEFAULT_CONFIG = "dm_openarm/config/arm_5dof.yaml"
-DUAL_CONFIG = "dm_openarm/config/arm_dual_10dof.yaml"
+DEFAULT_CONFIG = "dm_openarm/config/arm.yaml"
 SETTLE_S = 1.0
 SAMPLE_HZ = 50.0
 
@@ -246,9 +239,8 @@ def main() -> int:
     )
     parser.add_argument(
         "--config",
-        default=None,
-        help=f"YAML path (default: {DEFAULT_CONFIG}; "
-        f"use {DUAL_CONFIG} for right arm)",
+        default=DEFAULT_CONFIG,
+        help=f"YAML path (default: {DEFAULT_CONFIG})",
     )
     parser.add_argument(
         "--scale",
@@ -256,15 +248,7 @@ def main() -> int:
         default=0.9,
         help="scale written into output YAML (default 0.9)",
     )
-    parser.add_argument(
-        "--legacy-root-yaml",
-        action="store_true",
-        help="emit root gravity: (for arm_5dof) instead of left:/right: nested",
-    )
     args = parser.parse_args()
-
-    if args.config is None:
-        args.config = DUAL_CONFIG if args.side == "right" else DEFAULT_CONFIG
 
     print("=== 重力辨识 identify_gravity（耦合 / 按侧）===", flush=True)
     print(f"config: {args.config}  side={args.side}", flush=True)
@@ -299,8 +283,6 @@ def main() -> int:
             arm.left.set_gravity_enabled(False)
         if arm.right and arm.right.present:
             arm.right.set_gravity_enabled(False)
-        # Legacy single-arm path also clears left via root API
-        arm.set_gravity_enabled(False)
 
         for _ in range(30):
             arm._arm.send_zero_mit_all()
@@ -398,33 +380,19 @@ def main() -> int:
                 flush=True,
             )
 
-        emit_side = None if args.legacy_root_yaml else args.side
-        # Single-arm left + default config: allow root gravity for arm_5dof convenience
-        if (
-            args.side == "left"
-            and not arm.is_dual()
-            and not args.legacy_root_yaml
-            and Path(args.config).name == "arm_5dof.yaml"
-        ):
-            emit_side = None
-
         yaml_text = format_coupled_yaml(
             result,
+            side=args.side,
             enabled=True,
             scale=args.scale,
             use_measured_q=True,
             comments=names,
-            side=emit_side,
         )
         out = Path(f"gravity_coupled_identified_{args.side}.yaml")
-
-        if emit_side:
-            paste_hint = (
-                f"将下面片段合并进 arm_dual_10dof.yaml 的 **{args.side}:** 段 "
-                f"（替换该侧 gravity:），并设 enabled: true"
-            )
-        else:
-            paste_hint = "将下面片段合并进 arm_5dof.yaml 的 gravity: 段"
+        paste_hint = (
+            f"将下面片段合并进 arm.yaml 的 **{args.side}:** 段 "
+            f"（替换该侧 gravity:），并设 enabled: true"
+        )
 
         print(f"\n--- {paste_hint} ---\n", flush=True)
         print(yaml_text, flush=True)

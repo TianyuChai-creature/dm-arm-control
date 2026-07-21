@@ -7,7 +7,7 @@ from dm_openarm import Arm
 
 
 def main() -> None:
-    arm = Arm.from_yaml("dm_openarm/config/arm_5dof.yaml")
+    arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
 
     try:
         arm.enable()

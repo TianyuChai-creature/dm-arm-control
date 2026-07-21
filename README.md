@@ -7,7 +7,7 @@
 
 - C++：打开设备、发 MIT 帧、读反馈、1 kHz 后台循环（可叠加 \(g(q)\)）
 - Python：`Arm` 高层 API（使能、状态、MIT、设零、重力开关/比例）
-- 配置：`dm_openarm/config/arm_5dof.yaml`（含工位辨识后的 gravity 段）
+- 配置：`dm_openarm/config/arm.yaml`（含工位辨识后的 gravity 段）
 
 更细的包内说明见 [`dm_openarm/README.md`](dm_openarm/README.md)。  
 工位硬件实测记录见 [`resources/u2canfd/HARDWARE_CONFIG.md`](resources/u2canfd/HARDWARE_CONFIG.md)。  
@@ -18,7 +18,7 @@
 | 路径 | 说明 |
 | --- | --- |
 | `dm_openarm/` | 库源码、Python 绑定、配置、测试、C++ 示例 |
-| `dm_openarm/config/arm_5dof.yaml` | 默认 5 轴配置 |
+| `dm_openarm/config/arm.yaml` | 默认 5 轴配置 |
 | `dm_openarm/third_party/damiao_sdk/lib/libdm_device.so` | 达妙 dmcan 设备库（与 u2canfd 相同） |
 | `python_script/` | 根目录可运行 Python 脚本 |
 | `resources/u2canfd/` | 实测可用的 Python 参考例程与硬件记录 |
@@ -48,7 +48,7 @@
 | `0x04` | `0x14` | DM8009 | `elbow` | 肘部 |
 | `0x05` | `0x15` | DM8009 | `shoulder` | 肩部 |
 
-换适配器 / 改波特率 / 改 ID：编辑 `dm_openarm/config/arm_5dof.yaml` 即可，无需改协议代码。  
+换适配器 / 改波特率 / 改 ID：编辑 `dm_openarm/config/arm.yaml` 即可，无需改协议代码。  
 改 C++/绑定代码后需重新 `pip install -e ./dm_openarm` 或重新编译。
 
 ### YAML 关键字段示例
@@ -96,7 +96,7 @@ MIT 下发力矩为：
 
 ### 工位辨识结果（2026-07-21，耦合已验收并写入配置）
 
-空载、当前机械零位；**0x01–0x03 接近 0，0x04/0x05 主承力**。参数见 `arm_5dof.yaml` / `gravity_coupled_identified.yaml`。
+空载、当前机械零位；**0x01–0x03 接近 0，0x04/0x05 主承力**。参数见 `arm.yaml` / `gravity_coupled_identified.yaml`。
 
 配置中默认 `gravity.enabled: true`，`scale: **0.9**`。
 
@@ -119,20 +119,17 @@ pip install -e ./dm_openarm
 # 1) 机械摆到期望零位后设零（写 flash）
 python -c "
 from dm_openarm import Arm
-arm = Arm.from_yaml('dm_openarm/config/arm_5dof.yaml')
+arm = Arm.from_yaml('dm_openarm/config/arm.yaml')
 arm.enable()
 arm.set_zero_all(persist=True)
 arm.disable()
 "
 
 # 2) 交互耦合辨识（多轴组合姿态 ≥20 点）
-# 左臂（默认 arm_5dof.yaml → 根 gravity:）
+# 左 / 右（默认 config/arm.yaml，输出 nested left:|right: gravity）
 python python_script/identify_gravity.py --side left
-
-# 右臂（双臂配置；输出 nested right: gravity）
-python python_script/identify_gravity.py \
-  --config dm_openarm/config/arm_dual_10dof.yaml --side right
-# 输出 gravity_coupled_identified_{left|right}.yaml
+python python_script/identify_gravity.py --side right
+# 输出 gravity_coupled_identified_{left|right}.yaml → 合并进 arm.yaml 对应侧
 ```
 
 辨识脚本命令：
@@ -149,7 +146,7 @@ python python_script/identify_gravity.py \
 
 - **强调肩+肘组合姿态**，避免大量「只动一轴」  
 - 每点**停稳**再锁、再采；工作空间多点覆盖  
-- 拟合后把 `gravity:` 段合并进 `arm_5dof.yaml`
+- 拟合后把 `gravity:` 段合并进 `arm.yaml`
 
 ### 软保持试跑
 
@@ -249,7 +246,7 @@ C++ 联通检查：
 
 ```bash
 cd dm_openarm/build   # 若无则 cmake .. && make
-./check_comm ../config/arm_5dof.yaml
+./check_comm ../config/arm.yaml
 ```
 
 关闭设备时，底层可能打印若干行 `libusb_transfer_cancelled or error`，  
@@ -260,7 +257,7 @@ cd dm_openarm/build   # 若无则 cmake .. && make
 ```python
 from dm_openarm import Arm, MitCommand
 
-arm = Arm.from_yaml("dm_openarm/config/arm_5dof.yaml")
+arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
 
 try:
     arm.enable()
@@ -295,7 +292,7 @@ finally:
 ```python
 from dm_openarm import Arm
 
-arm = Arm.from_yaml("dm_openarm/config/arm_dual_10dof.yaml")
+arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
 arm.enable()
 # 先 seed 当前姿态再开环，避免 home 回零
 for s in arm.states():
@@ -311,7 +308,7 @@ arm.disable()
 ```
 
 扫描：`python python_script/scan_motors_online.py`  
-配置：`dm_openarm/config/arm_dual_10dof.yaml`（旧 `arm_5dof.yaml` 仍为单左臂）。
+配置：`dm_openarm/config/arm.yaml`（旧 `arm.yaml` 仍为单左臂）。
 
 右臂重力辨识后，把 `gravity_coupled_identified_right.yaml` 中的 `right.gravity` 合并进双臂配置，并 `arm.right.set_gravity_enabled(True)` 验证。
 
@@ -322,7 +319,7 @@ arm.disable()
 ```python
 from dm_openarm import Arm
 
-arm = Arm.from_yaml("dm_openarm/config/arm_5dof.yaml")
+arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
 arm.enable()
 arm.start_mit_loop(hz=1000.0, home=False)  # 勿默认回零
 arm.set_gravity_enabled(True)
@@ -380,11 +377,11 @@ ctest --output-on-failure
 示例：
 
 ```bash
-./check_comm ../config/arm_5dof.yaml
-./enable_disable ../config/arm_5dof.yaml
-./hold_position ../config/arm_5dof.yaml
-./set_zero_position ../config/arm_5dof.yaml all
-./arm_mit_control ../config/arm_5dof.yaml
+./check_comm ../config/arm.yaml
+./enable_disable ../config/arm.yaml
+./hold_position ../config/arm.yaml
+./set_zero_position ../config/arm.yaml all
+./arm_mit_control ../config/arm.yaml
 ```
 
 头文件：`dm_arm.hpp`、`mit_loop_controller.hpp`、`yaml_loader.hpp`、`types.hpp`、`config.hpp`。

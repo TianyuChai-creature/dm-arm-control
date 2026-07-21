@@ -11,7 +11,7 @@ from collections import defaultdict
 
 from dm_openarm import Arm
 
-DEFAULT_CONFIG = "dm_openarm/config/arm_dual_10dof.yaml"
+DEFAULT_CONFIG = "dm_openarm/config/arm.yaml"
 
 
 def is_feedback(s) -> bool:

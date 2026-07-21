@@ -24,8 +24,7 @@ from pathlib import Path
 
 from dm_openarm import Arm
 
-CONFIG = "dm_openarm/config/arm_5dof.yaml"
-# Dual-arm: dm_openarm/config/arm_dual_10dof.yaml + --side left|right
+CONFIG = "dm_openarm/config/arm.yaml"
 
 # Slightly firmer than soft-hold defaults so lag does not hide the path.
 KP_WRIST = 14.0

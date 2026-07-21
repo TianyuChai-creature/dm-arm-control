@@ -199,35 +199,11 @@ class Arm:
     ) -> None:
         self.move_to(can_id, q=q, kp=kp, kd=kd, dq=0.0, tau=0.0)
 
-    def move_joints(
-        self,
-        q_goal: Sequence[float] | Mapping[int, float],
-        duration: float | None = None,
-        *,
-        vmax: float = 0.4,
-        rate_hz: float = 100.0,
-        kp: float | Sequence[float] | None = None,
-        kd: float | Sequence[float] | None = None,
-        settle_s: float = 0.2,
-        gravity: bool | None = None,
-    ) -> MoveResult:
-        """Single-arm only (delegates to left). Dual-arm: use limb APIs."""
-        if self.right is not None and self.right.present:
-            raise RuntimeError(
-                "dual-arm config: use arm.left.move_joints(...) or "
-                "arm.right.move_joints(...)"
-            )
-        if self.left is None or not self.left.present:
-            raise RuntimeError("no left arm configured for move_joints")
-        return self.left.move_joints(
-            q_goal,
-            duration=duration,
-            vmax=vmax,
-            rate_hz=rate_hz,
-            kp=kp,
-            kd=kd,
-            settle_s=settle_s,
-            gravity=gravity,
+    def move_joints(self, *args, **kwargs) -> MoveResult:
+        """Not available on Arm — use arm.left / arm.right.move_joints."""
+        raise RuntimeError(
+            "use arm.left.move_joints(...) or arm.right.move_joints(...) "
+            "(dual-arm only; root move_joints removed)"
         )
 
     def __enter__(self) -> "Arm":

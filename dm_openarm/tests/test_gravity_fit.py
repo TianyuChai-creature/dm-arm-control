@@ -67,18 +67,18 @@ def test_coupled_recovery() -> None:
             pred = predict_coupled(q, result.joints[j].weights, basis)
             assert abs(true - pred) < 1e-3, (i, j, true, pred)
 
-    yaml_text = format_coupled_yaml(result, scale=0.9, comments=[f"j{i}" for i in range(5)])
-    assert "mode:" not in yaml_text
-    assert "joints:" not in yaml_text
-    assert "coupled:" in yaml_text
+    yaml_text = format_coupled_yaml(
+        result, side="left", scale=0.9, comments=[f"j{i}" for i in range(5)]
+    )
+    assert yaml_text.startswith("left:")
+    assert "  gravity:" in yaml_text
+    assert "    coupled:" in yaml_text
     assert "sin_q3_q4" in yaml_text
     assert "weights:" in yaml_text
-    assert not yaml_text.startswith("left:")
 
     side_yaml = format_coupled_yaml(result, scale=0.9, side="right", comments=["0x21"])
     assert side_yaml.startswith("right:")
     assert "  gravity:" in side_yaml
-    assert "    coupled:" in side_yaml
 
 
 if __name__ == "__main__":

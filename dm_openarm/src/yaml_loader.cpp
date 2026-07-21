@@ -261,69 +261,53 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
   std::set<std::uint16_t> can_ids;
   std::set<std::uint16_t> mst_ids;
 
-  const bool has_left = static_cast<bool>(root["left"]);
-  const bool has_right = static_cast<bool>(root["right"]);
-  const bool has_legacy_motors = static_cast<bool>(root["motors"]);
-
-  if(has_left || has_right)
+  // Dual-arm only: require left: and right: (no root motors:/gravity:).
+  if(root["motors"])
   {
-    if(has_legacy_motors)
-    {
-      throw std::runtime_error(
-        "config cannot have both root motors: and left:/right: limbs");
-    }
-    if(has_left)
-    {
-      const auto left = root["left"];
-      config.left.begin = config.motors.size();
-      if(left["motors"])
-      {
-        parse_motors_sequence(
-          left["motors"], "left.motors", config.motors, can_ids, mst_ids);
-      }
-      config.left.count = config.motors.size() - config.left.begin;
-      if(config.left.count == 0)
-      {
-        throw std::runtime_error("left.motors must not be empty when left: is present");
-      }
-      if(left["gravity"])
-      {
-        config.left.gravity =
-          parse_gravity(left["gravity"], "left.gravity", config.left.count);
-      }
-    }
-    if(has_right)
-    {
-      const auto right = root["right"];
-      config.right.begin = config.motors.size();
-      if(right["motors"])
-      {
-        parse_motors_sequence(
-          right["motors"], "right.motors", config.motors, can_ids, mst_ids);
-      }
-      config.right.count = config.motors.size() - config.right.begin;
-      if(config.right.count == 0)
-      {
-        throw std::runtime_error("right.motors must not be empty when right: is present");
-      }
-      if(right["gravity"])
-      {
-        config.right.gravity =
-          parse_gravity(right["gravity"], "right.gravity", config.right.count);
-      }
-    }
+    throw std::runtime_error(
+      "root motors: is no longer supported; put motors under left: and right:");
   }
-  else
+  if(root["gravity"])
   {
-    // Legacy: root motors: + optional root gravity: → all left.
-    const auto motors = require_node(root, "motors", "root");
-    config.left.begin = 0;
-    parse_motors_sequence(motors, "motors", config.motors, can_ids, mst_ids);
-    config.left.count = config.motors.size();
-    if(root["gravity"])
+    throw std::runtime_error(
+      "root gravity: is no longer supported; put gravity under left: and right:");
+  }
+  if(!root["left"] || !root["right"])
+  {
+    throw std::runtime_error(
+      "config must define both left: and right: limbs (dual-arm only)");
+  }
+
+  {
+    const auto left = root["left"];
+    config.left.begin = config.motors.size();
+    parse_motors_sequence(
+      require_node(left, "motors", "left"), "left.motors", config.motors, can_ids, mst_ids);
+    config.left.count = config.motors.size() - config.left.begin;
+    if(config.left.count == 0)
+    {
+      throw std::runtime_error("left.motors must not be empty");
+    }
+    if(left["gravity"])
     {
       config.left.gravity =
-        parse_gravity(root["gravity"], "gravity", config.left.count);
+        parse_gravity(left["gravity"], "left.gravity", config.left.count);
+    }
+  }
+  {
+    const auto right = root["right"];
+    config.right.begin = config.motors.size();
+    parse_motors_sequence(
+      require_node(right, "motors", "right"), "right.motors", config.motors, can_ids, mst_ids);
+    config.right.count = config.motors.size() - config.right.begin;
+    if(config.right.count == 0)
+    {
+      throw std::runtime_error("right.motors must not be empty");
+    }
+    if(right["gravity"])
+    {
+      config.right.gravity =
+        parse_gravity(right["gravity"], "right.gravity", config.right.count);
     }
   }
 

@@ -102,7 +102,7 @@ def test_move_joints_time_boxed_returns_result() -> None:
 
     arm.mit = mit  # type: ignore[method-assign]
 
-    result = arm.move_joints(
+    result = arm.left.move_joints(
         qf,
         duration=0.05,
         rate_hz=50.0,

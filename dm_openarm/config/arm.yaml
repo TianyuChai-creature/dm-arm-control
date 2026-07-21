@@ -1,6 +1,7 @@
-# Dual arm on one classic-CAN 1M bus.
+# Station dual-arm config (only supported layout).
 # left:  0x01–0x05 / mst 0x11–0x15 (distal wrist → shoulder)
 # right: 0x21–0x25 / mst 0x31–0x35 (same order)
+# classic CAN 1M. No root motors:/gravity: — use left:/right: only.
 usb:
   serial: "52A871B1AA5EF4E239371A5083463F26"
   nominal_baud: 1000000

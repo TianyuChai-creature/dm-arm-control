@@ -14,7 +14,7 @@ std::filesystem::path config_path(int argc, char** argv)
   {
     return argv[1];
   }
-  return "../config/arm_5dof.yaml";
+  return "../config/arm.yaml";
 }
 
 }  // namespace

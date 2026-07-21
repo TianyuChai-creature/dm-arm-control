@@ -150,44 +150,34 @@ def fit_coupled_all(
 def format_coupled_yaml(
     result: CoupledFitResult,
     *,
+    side: str,
     enabled: bool = True,
     scale: float = 0.9,
     use_measured_q: bool = True,
     comments: Sequence[str] | None = None,
     n_joints: int | None = None,
-    side: str | None = None,
 ) -> str:
-    """Format gravity YAML.
+    """Format dual-arm limb gravity YAML: always ``left:`` / ``right:`` nested."""
+    del n_joints
+    if side not in ("left", "right"):
+        raise ValueError("side must be 'left' or 'right'")
 
-    *side*:
-      - None → root ``gravity:`` (legacy single-arm arm_5dof.yaml)
-      - ``"left"`` / ``"right"`` → nested under that limb key for dual-arm configs
-    """
-    del n_joints  # kept for call-site compatibility; rows come from result.joints
-    if side is not None and side not in ("left", "right"):
-        raise ValueError("side must be None, 'left', or 'right'")
-
-    indent = "  " if side else ""
-    lines: list[str] = []
-    if side:
-        lines.append(f"{side}:")
-    lines.extend(
-        [
-            f"{indent}gravity:",
-            f"{indent}  enabled: {'true' if enabled else 'false'}",
-            f"{indent}  scale: {scale}",
-            f"{indent}  use_measured_q: {'true' if use_measured_q else 'false'}",
-            f"{indent}  coupled:",
-            f"{indent}    basis:",
-        ]
-    )
+    lines: list[str] = [
+        f"{side}:",
+        "  gravity:",
+        f"    enabled: {'true' if enabled else 'false'}",
+        f"    scale: {scale}",
+        f"    use_measured_q: {'true' if use_measured_q else 'false'}",
+        "    coupled:",
+        "      basis:",
+    ]
     for name in result.basis:
-        lines.append(f"{indent}      - {name}")
-    lines.append(f"{indent}    weights:")
+        lines.append(f"        - {name}")
+    lines.append("      weights:")
     for i, joint in enumerate(result.joints):
         c = f"  # {comments[i]}" if comments and i < len(comments) else ""
         wstr = ", ".join(f"{w:.8f}" for w in joint.weights)
-        lines.append(f"{indent}      - [{wstr}]{c}")
+        lines.append(f"        - [{wstr}]{c}")
     return "\n".join(lines) + "\n"
 
 

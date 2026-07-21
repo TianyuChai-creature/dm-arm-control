@@ -47,13 +47,13 @@ def test_dual_move_joints_root_errors() -> None:
         assert "arm.left" in str(e) or "dual-arm" in str(e)
 
 
-def test_single_arm_root_delegates_to_left() -> None:
+def test_limb_move_joints() -> None:
     class StubArm(Arm):
         def __init__(self) -> None:
             self._loop = MagicMock()
             self._loop.running.return_value = True
             self.left = Limb(self, "left", [0x01, 0x02], ["a", "b"])  # type: ignore[misc]
-            self.right = None
+            self.right = Limb(self, "right", [0x21, 0x22], ["c", "d"])  # type: ignore[misc]
             self._done = False
             self.sent: list = []
 
@@ -63,8 +63,18 @@ def test_single_arm_root_delegates_to_left() -> None:
 
         def states(self):  # type: ignore[override]
             if self._done:
-                return [FakeState(0x01, 0.25), FakeState(0x02, 0.0)]
-            return [FakeState(0x01, 0.0), FakeState(0x02, 0.0)]
+                return [
+                    FakeState(0x01, 0.25),
+                    FakeState(0x02, 0.0),
+                    FakeState(0x21, 0.0),
+                    FakeState(0x22, 0.0),
+                ]
+            return [
+                FakeState(0x01, 0.0),
+                FakeState(0x02, 0.0),
+                FakeState(0x21, 0.0),
+                FakeState(0x22, 0.0),
+            ]
 
         def mit(self, target, /, **kw):  # type: ignore[override]
             if isinstance(target, dict):
@@ -73,18 +83,13 @@ def test_single_arm_root_delegates_to_left() -> None:
                     self._done = True
 
     arm = StubArm()
-    # Call limb path directly
     result = arm.left.move_joints([0.2, 0.0], duration=0.05, rate_hz=50.0, settle_s=0.0)
     assert isinstance(result, MoveResult)
     assert abs(result.q_cmd[0] - 0.2) < 1e-9
-    # Root delegates when single-arm
-    arm2 = StubArm()
-    r2 = arm2.move_joints([0.1, 0.0], duration=0.05, rate_hz=50.0, settle_s=0.0)
-    assert abs(r2.q_cmd[0] - 0.1) < 1e-9
 
 
 if __name__ == "__main__":
     test_limb_rejects_foreign_can()
     test_dual_move_joints_root_errors()
-    test_single_arm_root_delegates_to_left()
+    test_limb_move_joints()
     print("test_limb_api OK")

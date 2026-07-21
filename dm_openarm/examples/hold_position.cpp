@@ -25,7 +25,7 @@ std::filesystem::path config_path(int argc, char** argv)
   {
     return argv[1];
   }
-  return "../config/arm_5dof.yaml";
+  return "../config/arm.yaml";
 }
 
 std::vector<dm_openarm::MitCommand> hold_commands(const std::vector<dm_openarm::MotorState>& states)
