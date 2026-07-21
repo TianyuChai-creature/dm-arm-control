@@ -138,3 +138,11 @@ python_script/                   # 独立 Python 脚本
 - 删除备份 `gravity_identified.yaml`；工位参数在 `arm_5dof.yaml` / `gravity_coupled_identified.yaml`
 - 合并进入 `main`；轨迹跟踪为后续分支
 
+### 2026-07-21 — 关节轨迹跟踪（分支 feature/trajectory-mit-gravity）
+
+- 规划：Python 同步多关节 rest-to-rest 五次多项式 \((q,\dot q)\)，默认 100 Hz 刷新 MIT
+- API：`Arm.move_joints` → `MoveResult`（**时间盒完成**，不硬等位置容差）
+- 瞬时：`move_to` / `hold_at`；demo：`python_script/move_joints_demo.py`
+- 重力：仍用 C++ 耦合 `apply_gravity`；无负载模型
+- 单测：`tests/test_trajectory.py`、`tests/test_python_api.py`
+

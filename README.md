@@ -235,6 +235,9 @@ python python_script/enable_disable.py
 
 # 4) 重力软保持（需已写入 gravity 参数；Ctrl+C 退出）
 python python_script/hold_with_gravity.py
+
+# 5) 小范围关节轨迹（默认 home=False，需确认后才动）
+python python_script/move_joints_demo.py
 ```
 
 C++ 联通检查：
@@ -278,6 +281,32 @@ finally:
 | `python_script/mit_control_one_motor.py` | 启动 MIT loop 并驱动单轴（会运动） |
 | `python_script/identify_gravity.py` | 交互采样姿态，拟合 gravity YAML |
 | `python_script/hold_with_gravity.py` | 重力前馈 + 软刚度保持当前姿态 |
+| `python_script/move_joints_demo.py` | 五次多项式关节轨迹 + 耦合重力（小角度） |
+
+## 关节轨迹跟踪
+
+软 MIT 下**完成条件是规划时长 \(T\)**，不是「位置误差进容差」。残差重力 + 低 \(k_p\) 会产生稳态滞后，属预期；`MoveResult` 只报告 `max_abs_err`，不抛「未到位」。
+
+```python
+from dm_openarm import Arm
+
+arm = Arm.from_yaml("dm_openarm/config/arm_5dof.yaml")
+arm.enable()
+arm.start_mit_loop(hz=1000.0, home=False)  # 勿默认回零
+arm.set_gravity_enabled(True)
+
+q = [s.position for s in arm.states()]
+q[3] += 0.15   # elbow
+q[4] -= 0.15   # shoulder
+result = arm.move_joints(q, duration=4.0, rate_hz=100.0)
+print(result.max_abs_err, result.err)
+
+arm.disable()
+```
+
+- 规划：同步多关节 rest-to-rest 五次多项式 \((q_d,\dot q_d)\)，默认约 100 Hz 写入 MIT loop  
+- 重力：C++ 每 1 ms 仍 `tau += scale * g(q)`（耦合模型）  
+- **无**末端负载模型；**无**硬位置门槛 API（不做 `wait_until_reached` 主路径）
 
 ## Python API：`Arm`
 
@@ -291,6 +320,8 @@ finally:
 | `stop_mit_loop()` | 停止后台循环 |
 | `mit(can_id, kp=..., kd=..., q=..., dq=..., tau=...)` | 更新单轴 MIT 目标 |
 | `mit({can_id: MitCommand(...), ...})` | 批量更新（未列出的轴保持原命令） |
+| `move_joints(q_goal, duration=None, ...)` | 五次多项式同步运动 → `MoveResult`（时间盒完成） |
+| `move_to` / `hold_at` | 瞬时写单轴目标，不插补、不阻塞 |
 | `set_gravity_enabled(bool)` | 打开/关闭 loop 内重力前馈 |
 | `set_gravity_scale(float)` | 重力前馈比例 |
 | `gravity_torques(q=None)` | 计算 \(g(q)\)（默认用当前测量角） |
@@ -299,7 +330,7 @@ finally:
 | `set_zero(can_id, persist=True)` | 当前位置写为零位（`persist` 写 flash） |
 | `set_zero_all(persist=True)` | 全部轴设零 |
 
-数据类型：`MitCommand`、`MotorState`、`ArmConfig`、`MotorConfig`、`MotorModel`、`ControlMode`。  
+数据类型：`MitCommand`、`MotorState`、`MoveResult`、`ArmConfig`、`MotorConfig`、`MotorModel`、`ControlMode`。  
 `ArmConfig` 现含 `canfd` / `brs` / `device_index`。
 
 底层绑定（一般不必用）：`dm_openarm._core.DmArm`、`MitLoopController`、`send_zero_mit_all()` 等。
