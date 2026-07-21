@@ -1,56 +1,223 @@
 # DM OpenArm
 
-`DM OpenArm` 是面向达妙电机机械臂的控制库（C++17 + Python）。  
-底层通信栈与工位实测可用的 `resources/u2canfd` **对齐**：`libdm_device.so`（dmcan API）+ **经典 CAN 1 Mbps**。
+达妙电机**双臂**控制库（C++17 + Python）。  
+通信：`libdm_device.so`（dmcan）+ **经典 CAN 1 Mbps**（与 `resources/u2canfd` 工位实测一致）。
 
-当前封装 **MIT 模式**，并支持 **重力前馈**（`tau_ff`）：
+| 能力 | 说明 |
+|------|------|
+| MIT 力矩模式 | 1 kHz 后台循环 |
+| 双臂 | 左 `0x01–0x05` / 右 `0x21–0x25`，同一总线 |
+| 耦合重力 | 按侧 \(\tau_g=W\phi(q)\)，默认 `scale=0.9` |
+| 关节轨迹 | 五次 rest-to-rest，`Limb.move_joints` |
 
-- C++：打开设备、发 MIT 帧、读反馈、1 kHz 后台循环（可叠加 \(g(q)\)）
-- Python：`Arm` 高层 API（使能、状态、MIT、设零、重力开关/比例）
-- 配置：`dm_openarm/config/arm.yaml`（**唯一** dual 布局：`left:` + `right:`）
+---
 
-更细的包内说明见 [`dm_openarm/README.md`](dm_openarm/README.md)。  
-工位硬件实测记录见 [`resources/u2canfd/HARDWARE_CONFIG.md`](resources/u2canfd/HARDWARE_CONFIG.md)。
+## 快速开始
 
-## 目录结构
+```bash
+# 依赖（Debian/Ubuntu）
+sudo apt install -y build-essential cmake pkg-config libyaml-cpp-dev libusb-1.0-0-dev
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ./dm_openarm
 
-| 路径 | 说明 |
-| --- | --- |
-| `dm_openarm/` | 库源码、Python 绑定、配置、测试、C++ 示例 |
-| `dm_openarm/config/arm.yaml` | 双臂站位配置（左 0x01–0x05 + 右 0x21–0x25） |
-| `dm_openarm/third_party/damiao_sdk/lib/libdm_device.so` | 达妙 dmcan 设备库（与 u2canfd 相同） |
-| `python_script/` | 根目录可运行 Python 脚本 |
-| `resources/u2canfd/` | 实测可用的 Python 参考例程与硬件记录 |
-| `resources/DMmotor/` | 上游 C++ 旧例程参考（`libu2canfd.a`，本库已不作为运行路径） |
+# 扫描 10 轴是否在线
+python python_script/scan_motors_online.py
+```
 
-## 硬件与通信（当前工位）
+唯一站位配置：`dm_openarm/config/arm.yaml`（**必须**含 `left:` + `right:`，无根级 `motors:`）。
+
+改 C++ 后需重新 `pip install -e ./dm_openarm`。
+
+---
+
+## 硬件与 ID
 
 | 项目 | 值 |
-| --- | --- |
-| 设备驱动 | `libdm_device.so`（dmcan），**不是**旧版 `libu2canfd.a` |
-| 链路模式 | **经典 CAN**（YAML：`canfd: false`，`brs: false`） |
-| USB 适配器 SN | `52A871B1AA5EF4E239371A5083463F26` |
-| 标称波特率 | `1000000`（1 Mbps） |
-| 数据域波特率 | 经典 CAN 下不使用（配置里写 1M 即可） |
-| 控制模式 | MIT |
-| 默认控制频率 | 1000 Hz |
+|------|-----|
+| 链路 | 经典 CAN 1M（`canfd: false`, `brs: false`） |
+| USB SN | `52A871B1AA5EF4E239371A5083463F26`（改适配器改 YAML） |
+| 控制 | MIT @ 1 kHz |
 
-> 工位实测：CAN FD（含数据域 1M/5M）无回帧。不要按旧文档默认的 5M CANFD 配置。
+| 侧 | CAN | MST | 顺序 | 型号 |
+|----|-----|-----|------|------|
+| **left** | 0x01…0x05 | 0x11…0x15 | 腕远端 → 肩 | 腕 DM4310 ×3，肘/肩 DM8009 |
+| **right** | 0x21…0x25 | 0x31…0x35 | 同上 | 同上 |
 
-默认电机表：
+---
 
-| CAN ID | MST ID | 型号 | YAML 名称 | 位置 |
-| --- | --- | --- | --- | --- |
-| `0x01` | `0x11` | DM4310 | `end_effector` | 末端 |
-| `0x02` | `0x12` | DM4310 | `wrist_2` | 末端上数第二 |
-| `0x03` | `0x13` | DM4310 | `wrist_3` | 末端上数第三 |
-| `0x04` | `0x14` | DM8009 | `elbow` | 肘部 |
-| `0x05` | `0x15` | DM8009 | `shoulder` | 肩部 |
+## 架构（怎么用 API）
 
-换适配器 / 改波特率 / 改 ID：编辑 `dm_openarm/config/arm.yaml` 即可，无需改协议代码。  
-改 C++/绑定代码后需重新 `pip install -e ./dm_openarm` 或重新编译。
+```
+Python Arm
+├── 设备级：enable / disable / start_mit_loop / states / mit
+├── arm.left  (Limb)  → mit / move_joints / 重力 / set_zero …
+└── arm.right (Limb)  → 同上
+        │
+        ▼
+C++ MitLoopController @ 1 kHz
+  tau_sent = PD + tau_cmd + scale·g_side(q)
+```
 
-### YAML 关键字段示例
+- **设备级**：开设备、共享 1 kHz 环（两侧一起进 loop）。  
+- **侧级 `Limb`**：轨迹、重力、示教保持——**一律用 `arm.left` / `arm.right`**。  
+- 根上 **没有** `arm.move_joints`（会报错）。  
+- 双臂务必 `start_mit_loop(home=False)`，避免全体硬回零惊吓。
+
+### 控制律
+
+\[
+\tau_{\text{sent}}
+= k_p(q_d-q)+k_d(\dot q_d-\dot q)+\tau_{\text{cmd}}
++ s\cdot\hat\tau_g(\mathbf{q})
+\]
+
+耦合模型（每侧独立 5 轴）：
+
+\[
+\hat\tau_{g,i}=\sum_k w_{ik}\,\phi_k(\mathbf{q}),\quad
+\phi\in\{1,\sin/\cos q_j,\sin/\cos(q_3+q_4)\}
+\]
+
+软 MIT 下轨迹**按规划时长结束**（`MoveResult` 报告误差），不硬等位置进容差。
+
+---
+
+## Python API
+
+### 设备级 `Arm`
+
+| 方法 | 作用 |
+|------|------|
+| `Arm.from_yaml(path)` | 加载配置，不连设备 |
+| `enable()` / `disable()` | 连接使能 / 停 loop + 失能 |
+| `start_mit_loop(hz=1000, home=False)` | 启动 1 kHz 环；**双臂用 `home=False`** |
+| `stop_mit_loop()` | 停环 |
+| `states()` | 全总线反馈（左后右） |
+| `mit(can_id, kp=, kd=, q=, dq=, tau=)` | 写任意轴 MIT（底层） |
+| `mit({can_id: MitCommand(...), ...})` | 批量 |
+| `set_zero` / `set_zero_all` | 当前位置写零（可 `persist` 写 flash） |
+| `is_dual()` | 是否双侧都有电机 |
+| `left` / `right` | `Limb` 对象 |
+
+### 侧级 `Limb`（`arm.left` / `arm.right`）
+
+| 方法 | 作用 |
+|------|------|
+| `can_ids` / `n_joints` / `states()` | 本侧元数据与反馈 |
+| `mit` / `move_to` / `hold_at` | 本侧 MIT（拒绝异侧 can_id） |
+| `move_joints(q_goal, duration=…)` | 本侧五次轨迹 → `MoveResult` |
+| `set_gravity_enabled` / `set_gravity_scale` | 本侧重力 |
+| `gravity_torques(q=None)` | 本侧 \(g(q)\) |
+| `set_zero` / `set_zero_all` | 本侧设零 |
+
+`MoveResult` 字段：`duration`, `q_cmd`, `q_meas`, `err`, `max_abs_err`。
+
+---
+
+## 调用示例
+
+### 1. 扫描在线
+
+```bash
+python python_script/scan_motors_online.py
+```
+
+### 2. 最小控制（读状态 + 保持）
+
+```python
+from dm_openarm import Arm
+
+arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
+arm.enable()
+
+# 先 seed 当前角，再开环（勿 home=True）
+for s in arm.states():
+    arm.mit(int(s.can_id), kp=12.0, kd=0.6, q=float(s.position), dq=0.0, tau=0.0)
+
+arm.start_mit_loop(hz=1000.0, home=False)
+arm.left.set_gravity_enabled(True)
+arm.right.set_gravity_enabled(True)
+
+for s in arm.left.states():
+    print(f"L 0x{s.can_id:02X} q={s.position:+.3f}")
+
+arm.disable()
+```
+
+### 3. 单侧轨迹
+
+```python
+# 肘 +0.3 rad、肩 -0.3 rad（本侧索引 3、4）
+q = [s.position for s in arm.left.states()]
+q[3] += 0.3
+q[4] -= 0.3
+result = arm.left.move_joints(q, duration=3.0, rate_hz=100.0)
+print("max|err|", result.max_abs_err)
+
+# 右手同理
+qr = [0.0] * 5  # 回到侧内零位
+arm.right.move_joints(qr, duration=3.0)
+```
+
+```bash
+python python_script/move_joints_demo.py --side left
+python python_script/move_joints_demo.py --side right
+```
+
+### 4. 重力软保持（示教）
+
+```bash
+python python_script/hold_with_gravity.py --side left --scale 0.9
+python python_script/hold_with_gravity.py --side right --scale 0.9
+```
+
+### 5. 重力辨识（按侧）
+
+```bash
+# 只掰本侧；对侧软钉。输出 gravity_coupled_identified_{side}.yaml
+python python_script/identify_gravity.py --side left
+python python_script/identify_gravity.py --side right
+# 将 YAML 片段合并进 arm.yaml 对应 left:/right: 的 gravity:
+```
+
+### 6. 当前位置设为零位（写 flash）
+
+```python
+arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
+arm.enable()
+arm.set_zero_all(persist=True)   # 左右全部 10 轴
+# 或 arm.left.set_zero_all() / arm.right.set_zero_all()
+arm.disable()
+```
+
+> 设零后若机械零相对辨识姿态变了，应重做该侧重力辨识。
+
+### 7. 双侧运动到关节 0
+
+```python
+arm.start_mit_loop(home=False)
+arm.left.set_gravity_enabled(True)
+arm.right.set_gravity_enabled(True)
+arm.left.move_joints([0, 0, 0, 0, 0], duration=3.0)
+arm.right.move_joints([0, 0, 0, 0, 0], duration=3.0)
+```
+
+---
+
+## 脚本一览
+
+| 脚本 | 用途 |
+|------|------|
+| `scan_motors_online.py` | 10 轴在线扫描 |
+| `read_states.py` | 持续打印状态 |
+| `hold_with_gravity.py --side …` | 本侧重力软保持 |
+| `identify_gravity.py --side …` | 本侧耦合重力辨识 |
+| `move_joints_demo.py --side …` | 本侧可见肩肘轨迹 |
+| `enable_disable.py` / `link_test.py` | 使能 / 联通 |
+
+---
+
+## 配置片段（dual）
 
 ```yaml
 usb:
@@ -59,347 +226,44 @@ usb:
   data_baud: 1000000
   canfd: false
   brs: false
-  device_index: 0
 
-gravity:
-  enabled: true
-  scale: 0.9          # 默认略欠补偿，软刚度下更稳
-  use_measured_q: true
-  coupled:            # 仅支持耦合模型 τ = W·φ(q)
-    basis: [one, sin_q0, ..., sin_q3_q4, cos_q3_q4]
-    weights:          # 与 motors[] 同序，每行长度 = basis
-      - [...]
+left:
+  gravity:
+    enabled: true
+    scale: 0.9
+    coupled: { basis: [...], weights: [5 rows] }
+  motors: [ {can_id: 0x01, mst_id: 0x11, ...}, ... ]
+
+right:
+  gravity:
+    enabled: true
+    scale: 0.9
+    coupled: { basis: [...], weights: [5 rows] }
+  motors: [ {can_id: 0x21, mst_id: 0x31, ...}, ... ]
 ```
 
-## 重力补偿（工位现状）
+单位：`q` rad，`dq` rad/s，`tau` N·m，`kp` N·m/rad，`kd` N·m/(rad/s)。  
+`q` 为**绝对**位置（相对电机零点），不是相对位移。
 
-### 模型
-
-MIT 下发力矩为：
-
-\[
-\tau_{\text{sent}} = k_p(q_{\text{des}}-q) + k_d(\dot q_{\text{des}}-\dot q) + \tau_{\text{cmd}} + s\cdot\hat\tau_g(q)
-\]
-
-**仅保留耦合模型**（解耦 `amp/phase/bias` 已移除）：
-
-\[
-\hat\tau_{g,i}(\mathbf{q})=\sum_k w_{ik}\,\phi_k(\mathbf{q})
-\]
-
-默认基函数：`one`, `sin/cos q0..q4`, `sin/cos(q3+q4)`（肩肘耦合）。
-
-- \(s\) = YAML / API 中的 `scale`（默认 **0.9** 欠补偿）  
-- loop 内：`tau_sent = cmd.tau + scale * g(q)`  
-- 软保持时建议锁定姿态后用 **目标角** \(q_{\text{des}}\) 算 \(g\)（避免下沉正反馈）；跟手移动时可用测量角
-
-### 工位辨识结果（2026-07-21，耦合已验收并写入配置）
-
-空载、当前机械零位；**0x01–0x03 接近 0，0x04/0x05 主承力**。参数见 `arm.yaml` / `gravity_coupled_identified.yaml`。
-
-配置中默认 `gravity.enabled: true`，`scale: **0.9**`。
-
-### 验收结论（当前）
-
-| 项 | 状态 |
-| --- | --- |
-| 通信 / 使能 / 读状态 | 可用（dmcan + 经典 CAN 1M） |
-| 耦合重力前馈 | **已验收**（肩肘明显托住，优于旧解耦） |
-| 调参方向 | 过冲 → 降 `scale`；慢沉 → 略升 `scale` 或略加 `kp`/`kd` |
-| 末端负载模型 | **不做**（工具未接入前） |
-| 轨迹跟踪 | 后续分支 |
-
-### 辨识流程（换零位或换空载结构后重做）
-
-```bash
-source .venv/bin/activate
-pip install -e ./dm_openarm
-
-# 1) 机械摆到期望零位后设零（写 flash）
-python -c "
-from dm_openarm import Arm
-arm = Arm.from_yaml('dm_openarm/config/arm.yaml')
-arm.enable()
-arm.set_zero_all(persist=True)
-arm.disable()
-"
-
-# 2) 交互耦合辨识（多轴组合姿态 ≥20 点）
-# 左 / 右（默认 config/arm.yaml，输出 nested left:|right: gravity）
-python python_script/identify_gravity.py --side left
-python python_script/identify_gravity.py --side right
-# 输出 gravity_coupled_identified_{left|right}.yaml → 合并进 arm.yaml 对应侧
-```
-
-辨识脚本命令：
-
-| 命令 | 含义 |
-| --- | --- |
-| `u` | 解锁跟手（**双手托住**再掰**本侧**） |
-| `l` | 锁定当前角（可松手检查） |
-| `Enter` | 在**已锁定目标**上加硬采样（不改目标角，避免突然松弛） |
-| `f` | 拟合并写入 `gravity_coupled_identified_{side}.yaml` |
-| `q` | 放弃 |
-
-要点：
-
-- **强调肩+肘组合姿态**，避免大量「只动一轴」  
-- 每点**停稳**再锁、再采；工作空间多点覆盖  
-- 拟合后把 `gravity:` 段合并进 `arm.yaml`
-
-### 软保持试跑
-
-```bash
-# 默认 scale=0.9
-python python_script/hold_with_gravity.py
-
-# 仍下沉
-python python_script/hold_with_gravity.py --scale 1.0
-
-# 个别点过冲 / 顶过头
-python python_script/hold_with_gravity.py --scale 0.8
-```
-
-用法：启动后锁定当前姿态 → **托着**移到新姿态 → 停约 0.4s 见 `[锁定]` → 再松手。  
-Ctrl+C 退出。
-
-### 末端加负载后是否要重标定？
-
-**要。** 当前 \(W\) 对应**空载**质量分布。末端加工具/工件后肩、肘变化最大。
-
-| 情况 | 建议 |
-| --- | --- |
-| 固定一种负载 | **带该负载**再跑 `identify_gravity.py`，更新 YAML |
-| 几种已知负载 | 多套 `gravity` 配置或按工具切换 |
-| 负载常变/未知 | 需在线估计或力传感；单次空载标定不够 |
-| 临时凑合 | 可略调 `scale`，个别姿态仍会差 |
-
-### 软刚度与补偿误差
-
-软 `kp` 时闭环几乎不“硬顶”，残差 \(\tau_{\text{true}}-s\hat\tau_g\) 会直接变成漂移/过冲：
-
-- **欠补偿** → 慢沉（更安全）  
-- **过补偿** → 往上顶、过冲（危险）  
-
-因此默认 `scale=0.9`。
-
-## 单位约定
-
-| 字段 | 含义 | 单位 |
-| --- | --- | --- |
-| `q` | 目标**绝对**位置（相对电机零点） | rad |
-| `dq` | 目标速度 | rad/s |
-| `tau` | 前馈力矩 | N·m |
-| `kp` | 位置增益 | N·m/rad |
-| `kd` | 速度阻尼 | N·m/(rad/s) |
-| `position` / `velocity` / `torque` | 反馈 | rad / rad/s / N·m |
-| `feedback_interval_s` | 反馈间隔 | s |
-
-`q=0.8` 表示运动到绝对位置 `0.8 rad`，**不是**相对当前位置 +0.8。
-
-## 系统依赖与安装
-
-```bash
-sudo apt update
-sudo apt install -y build-essential cmake pkg-config \
-  libusb-1.0-0-dev libudev-dev libyaml-cpp-dev
-
-# udev（USB 权限，通常只需设置一次）
-# SUBSYSTEM=="usb", ATTR{idVendor}=="34b7", ATTR{idProduct}=="6877", MODE="0666"
-```
-
-Python（在仓库根目录）：
-
-```bash
-cd /home/creature/Desktop/dm-arm-control
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ./dm_openarm
-```
-
-**不要**在仓库根目录执行 `pip install .`（根目录没有 `pyproject.toml`）。
-
-## 快速验证（推荐顺序）
-
-```bash
-cd /home/creature/Desktop/dm-arm-control
-source .venv/bin/activate
-
-# 1) 联通：MIT 全 0，不回零
-python python_script/link_test.py
-
-# 2) 读状态（Ctrl+C 退出）
-python python_script/read_states.py
-
-# 3) 使能/失能
-python python_script/enable_disable.py
-
-# 4) 重力软保持（需已写入 gravity 参数；Ctrl+C 退出）
-python python_script/hold_with_gravity.py
-
-# 5) 小范围关节轨迹（默认 home=False，需确认后才动）
-python python_script/move_joints_demo.py
-```
-
-C++ 联通检查：
-
-```bash
-cd dm_openarm/build   # 若无则 cmake .. && make
-./check_comm ../config/arm.yaml
-```
-
-关闭设备时，底层可能打印若干行 `libusb_transfer_cancelled or error`，  
-属 `libdm_device` 收尾时的已知现象，**一般可忽略**（进程仍正常退出）。
-
-## Python 使用
-
-```python
-from dm_openarm import Arm, MitCommand
-
-arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
-
-try:
-    arm.enable()
-    arm.start_mit_loop(hz=1000.0)  # 会尝试回零 q=0，注意安全
-
-    arm.mit(0x01, kp=12.0, kd=0.6, q=0.4, dq=0.0, tau=0.0)
-
-    for s in arm.states():
-        print(f"0x{s.can_id:02X} pos={s.position:.4f} vel={s.velocity:.4f}")
-
-finally:
-    arm.stop_mit_loop()
-    arm.disable()
-```
-
-### 示例脚本
-
-| 脚本 | 作用 |
-| --- | --- |
-| `python_script/link_test.py` | 联通测试（MIT 全 0，不回零） |
-| `python_script/read_states.py` | 持续打印各轴状态（Ctrl+C 退出） |
-| `python_script/enable_disable.py` | 使能后等待回车再失能 |
-| `python_script/mit_control_one_motor.py` | 启动 MIT loop 并驱动单轴（会运动） |
-| `python_script/identify_gravity.py` | 按侧耦合重力辨识（`--side left\|right`） |
-| `python_script/hold_with_gravity.py` | 重力前馈 + 软刚度保持当前姿态 |
-| `python_script/move_joints_demo.py` | 五次多项式关节轨迹 + 耦合重力（小角度） |
-
-## 双臂 left / right
-
-同一 USB-CAN 上左臂 `0x01–0x05`、右臂 `0x21–0x25`。设备共享 `enable` / `start_mit_loop`，控制按侧：
-
-```python
-from dm_openarm import Arm
-
-arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
-arm.enable()
-# 先 seed 当前姿态再开环，避免 home 回零
-for s in arm.states():
-    arm.mit(s.can_id, kp=12, kd=0.6, q=s.position)
-arm.start_mit_loop(home=False)
-
-arm.left.set_gravity_enabled(True)
-arm.right.set_gravity_enabled(False)  # 右臂未辨识重力前保持关
-
-arm.left.move_joints([...], duration=2.5)
-arm.right.move_joints([...], duration=2.5)
-arm.disable()
-```
-
-扫描：`python python_script/scan_motors_online.py`  
-唯一配置：`dm_openarm/config/arm.yaml`（强制 `left:` + `right:`）。
-
-右臂重力辨识后，把 `gravity_coupled_identified_right.yaml` 合并进 `right.gravity`，`arm.right.set_gravity_enabled(True)` 验证。
-
-## 关节轨迹跟踪
-
-软 MIT 下**完成条件是规划时长 \(T\)**，不是「位置误差进容差」。残差重力 + 低 \(k_p\) 会产生稳态滞后，属预期；`MoveResult` 只报告 `max_abs_err`，不抛「未到位」。
-
-```python
-from dm_openarm import Arm
-
-arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
-arm.enable()
-arm.start_mit_loop(hz=1000.0, home=False)  # 勿默认回零
-arm.set_gravity_enabled(True)
-
-q = [s.position for s in arm.states()]
-q[3] += 0.15   # elbow
-q[4] -= 0.15   # shoulder
-result = arm.move_joints(q, duration=4.0, rate_hz=100.0)
-print(result.max_abs_err, result.err)
-
-arm.disable()
-```
-
-- 规划：同步多关节 rest-to-rest 五次多项式 \((q_d,\dot q_d)\)，默认约 100 Hz 写入 MIT loop  
-- 重力：C++ 每 1 ms 仍 `tau += scale * g(q)`（耦合模型）  
-- **无**末端负载模型；**无**硬位置门槛 API（不做 `wait_until_reached` 主路径）
-
-## Python API：`Arm`
-
-| API | 说明 |
-| --- | --- |
-| `Arm.from_yaml(path)` | 加载配置，不连硬件 |
-| `enable()` | 打开设备并使能电机 |
-| `disable()` | 停 loop + 失能 + 释放设备 |
-| `states()` | 各轴反馈列表 |
-| `start_mit_loop(hz=1000, zero_timeout=5, home=True)` | 后台 1 kHz 循环；`home=False` 时不回零 |
-| `stop_mit_loop()` | 停止后台循环 |
-| `mit(can_id, kp=..., kd=..., q=..., dq=..., tau=...)` | 更新单轴 MIT 目标 |
-| `mit({can_id: MitCommand(...), ...})` | 批量更新（未列出的轴保持原命令） |
-| `move_joints(q_goal, duration=None, ...)` | 五次多项式同步运动 → `MoveResult`（时间盒完成） |
-| `move_to` / `hold_at` | 瞬时写单轴目标，不插补、不阻塞 |
-| `set_gravity_enabled(bool)` | 打开/关闭 loop 内重力前馈 |
-| `set_gravity_scale(float)` | 重力前馈比例 |
-| `gravity_torques(q=None)` | 计算 \(g(q)\)（默认用当前测量角） |
-| `commands()` | 当前命令表 |
-| `mit_loop_running` | loop 是否在跑 |
-| `set_zero(can_id, persist=True)` | 当前位置写为零位（`persist` 写 flash） |
-| `set_zero_all(persist=True)` | 全部轴设零 |
-
-数据类型：`MitCommand`、`MotorState`、`MoveResult`、`ArmConfig`、`MotorConfig`、`MotorModel`、`ControlMode`。  
-`ArmConfig` 现含 `canfd` / `brs` / `device_index`。
-
-底层绑定（一般不必用）：`dm_openarm._core.DmArm`、`MitLoopController`、`send_zero_mit_all()` 等。
+---
 
 ## C++ 构建
 
 ```bash
-cd dm_openarm
-mkdir -p build && cd build
-cmake ..
-make -j$(nproc)
-ctest --output-on-failure
-```
-
-示例：
-
-```bash
+cd dm_openarm && mkdir -p build && cd build
+cmake .. && make -j$(nproc) && ctest --output-on-failure
 ./check_comm ../config/arm.yaml
-./enable_disable ../config/arm.yaml
-./hold_position ../config/arm.yaml
-./set_zero_position ../config/arm.yaml all
-./arm_mit_control ../config/arm.yaml
 ```
 
-头文件：`dm_arm.hpp`、`mit_loop_controller.hpp`、`yaml_loader.hpp`、`types.hpp`、`config.hpp`。
+关设备时可能打印 `libusb_transfer_cancelled`，可忽略。
+
+---
 
 ## 安全注意
 
-- `start_mit_loop()` 会驱动各轴尝试回到已保存零位 `q=0`，周围勿有干涉。
-- `mit()` **无自动斜坡**；大角度 + 高 `kp` 可能猛动。
-- `set_zero(persist=True)` 写 flash，勿频繁调用。
-- 运动脚本务必 `try/finally` 中 `stop_mit_loop()` + `disable()`。
-- 初次建议单轴、小角度、低增益、`tau=0`。
+1. 双臂 **`home=False`**，先 seed 再开 loop。  
+2. 重力默认欠补偿 `scale=0.9`：过冲降 scale，慢沉略升。  
+3. 软刚度下会有静差，属预期。  
+4. 急停：Ctrl+C / `disable()`。  
 
-## 与 u2canfd 的关系
-
-| 项 | `resources/u2canfd` | `dm_openarm`（当前） |
-| --- | --- | --- |
-| 设备库 | `dlls/libdm_device.so` | `third_party/.../libdm_device.so` |
-| API | Python dmcan-sdk | C++ dmcan + `Arm` / `DmArm` |
-| 总线 | classic CAN 1M | 相同（YAML 默认） |
-| 用途 | 实测联通 / 扫描例程 | 5 轴控制库与业务脚本 |
-
-旧栈 `libu2canfd.a`（`usb_class`）仅作历史参考，**不再作为本库运行路径**。
+更底层的包说明见 [`dm_openarm/README.md`](dm_openarm/README.md)；工位链路笔记见 [`resources/u2canfd/`](resources/u2canfd/)。
