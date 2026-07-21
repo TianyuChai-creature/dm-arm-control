@@ -73,6 +73,12 @@ def test_coupled_recovery() -> None:
     assert "coupled:" in yaml_text
     assert "sin_q3_q4" in yaml_text
     assert "weights:" in yaml_text
+    assert not yaml_text.startswith("left:")
+
+    side_yaml = format_coupled_yaml(result, scale=0.9, side="right", comments=["0x21"])
+    assert side_yaml.startswith("right:")
+    assert "  gravity:" in side_yaml
+    assert "    coupled:" in side_yaml
 
 
 if __name__ == "__main__":

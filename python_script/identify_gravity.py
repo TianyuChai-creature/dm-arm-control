@@ -1,18 +1,24 @@
 #!/usr/bin/env python3
-"""交互式重力参数辨识。
+"""交互式耦合重力辨识（按侧 left / right）。
 
 流程：
-  u      — UNLOCK 跟手（双手托住重量再掰）
+  u      — UNLOCK 跟手（双手托住重量再掰）——仅操作所选侧
   l      — LOCK 钉住当前测量角（可松手）
   Enter  — 在【已有锁定目标】上采样；若当前是 UNLOCK 则先锁再采
   f      — 拟合
   q      — 放弃
 
-【Enter 松弛的原因（已修）】
-  旧逻辑在 Enter 时把 q_des 改成「当前测量角」。
-  锁住后臂因重力略下沉时，测量角 ≠ 锁定目标，存在 kp*e 在扛重力；
-  一改 q_des=测量角，误差 e→0，弹簧力消失 → 感觉突然松弛再塌。
-  现：已 LOCK 时 Enter 保持原 q_des，只提高 kp 采样。
+示例：
+  # 左臂（单臂配置默认）
+  python python_script/identify_gravity.py --side left
+
+  # 右臂（双臂配置）
+  python python_script/identify_gravity.py \\
+    --config dm_openarm/config/arm_dual_10dof.yaml --side right
+
+输出：
+  gravity_coupled_identified_left.yaml  /  _right.yaml
+  （片段可直接粘到 arm_dual 的 left:/right: 或旧版根 gravity:）
 """
 from __future__ import annotations
 
@@ -26,8 +32,10 @@ from dm_openarm.gravity_fit import (
     fit_coupled_all,
     format_coupled_yaml,
 )
+from dm_openarm.limb import Limb
 
-CONFIG = "dm_openarm/config/arm_5dof.yaml"
+DEFAULT_CONFIG = "dm_openarm/config/arm_5dof.yaml"
+DUAL_CONFIG = "dm_openarm/config/arm_dual_10dof.yaml"
 SETTLE_S = 1.0
 SAMPLE_HZ = 50.0
 
@@ -43,22 +51,36 @@ KP_L_L, KD_L_L = 18.0, 1.2
 KP_S_S, KD_S_S = 30.0, 1.2
 KP_S_L, KD_S_L = 24.0, 1.4
 
+# 对侧仅软保持，避免误动
+KP_OTHER, KD_OTHER = 8.0, 0.6
+
+# 大电机（肘/肩）：左 0x04/0x05，右 0x24/0x25
+_LARGE_CAN = frozenset({0x04, 0x05, 0x24, 0x25})
+
+
+def is_large(cid: int) -> bool:
+    return int(cid) in _LARGE_CAN
+
 
 def g_unlock(cid: int) -> tuple[float, float]:
-    return (KP_U_L, KD_U_L) if cid >= 0x04 else (KP_U_S, KD_U_S)
+    return (KP_U_L, KD_U_L) if is_large(cid) else (KP_U_S, KD_U_S)
 
 
 def g_lock(cid: int) -> tuple[float, float]:
-    return (KP_L_L, KD_L_L) if cid >= 0x04 else (KP_L_S, KD_L_S)
+    return (KP_L_L, KD_L_L) if is_large(cid) else (KP_L_S, KD_L_S)
 
 
 def g_sample(cid: int) -> tuple[float, float]:
-    return (KP_S_L, KD_S_L) if cid >= 0x04 else (KP_S_S, KD_S_S)
+    return (KP_S_L, KD_S_L) if is_large(cid) else (KP_S_S, KD_S_S)
 
 
 class HoldController:
-    def __init__(self, arm: Arm):
+    """Hold / teach assist scoped to one limb; soft-hold the rest of the bus."""
+
+    def __init__(self, arm: Arm, limb: Limb):
         self.arm = arm
+        self.limb = limb
+        self._focus = set(limb.can_ids)
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._mu = threading.Lock()
@@ -67,9 +89,9 @@ class HoldController:
         self._sample_mode = False
 
     def start(self) -> None:
-        states = self.arm.states()
+        states = self.limb.states()
         with self._mu:
-            self._q_des = {s.can_id: s.position for s in states}
+            self._q_des = {int(s.can_id): float(s.position) for s in states}
             self.locked = True
             self._sample_mode = False
         self._stop.clear()
@@ -89,14 +111,14 @@ class HoldController:
             self._sample_mode = False
         self._push_now()
         print(
-            "  → UNLOCK：双手托住再掰。到位后按 l 锁定，再 Enter 采样。",
+            f"  → UNLOCK [{self.limb.side}]：双手托住再掰本侧。到位后按 l 锁定，再 Enter 采样。",
             flush=True,
         )
 
     def lock_here(self) -> None:
-        states = self.arm.states()
+        states = self.limb.states()
         with self._mu:
-            self._q_des = {s.can_id: s.position for s in states}
+            self._q_des = {int(s.can_id): float(s.position) for s in states}
             self.locked = True
             self._sample_mode = False
             q_des = dict(self._q_des)
@@ -109,12 +131,10 @@ class HoldController:
 
     def begin_sample(self) -> None:
         """Raise kp for sampling. Do NOT move q_des if already locked."""
-        states = self.arm.states()
+        states = self.limb.states()
         with self._mu:
             if not self.locked or not self._q_des:
-                # UNLOCK 时 Enter：先以当前角建锁
-                self._q_des = {s.can_id: s.position for s in states}
-            # 已 LOCK：保留原 _q_des，避免 e→0 导致突然松弛
+                self._q_des = {int(s.can_id): float(s.position) for s in states}
             self.locked = True
             self._sample_mode = True
             q_des = dict(self._q_des)
@@ -128,23 +148,32 @@ class HoldController:
     def end_sample(self) -> None:
         with self._mu:
             self._sample_mode = False
-            # 仍 LOCK，q_des 不变
         self._push_now()
 
     def _push_now(self) -> None:
-        """Synchronously send one MIT frame (don't wait for background tick)."""
         try:
-            states = self.arm.states()
+            all_states = self.arm.states()
+            limb_states = [s for s in all_states if int(s.can_id) in self._focus]
             with self._mu:
                 locked = self.locked
                 sample = self._sample_mode
                 q_des = dict(self._q_des)
                 if not locked:
-                    q_des = {s.can_id: s.position for s in states}
+                    q_des = {int(s.can_id): float(s.position) for s in limb_states}
                     self._q_des = q_des
             cmds = {}
-            for s in states:
-                cid = s.can_id
+            for s in all_states:
+                cid = int(s.can_id)
+                if cid not in self._focus:
+                    # Other limb: soft hold measured pose
+                    cmds[cid] = MitCommand(
+                        kp=KP_OTHER,
+                        kd=KD_OTHER,
+                        q=float(s.position),
+                        dq=0.0,
+                        tau=0.0,
+                    )
+                    continue
                 if sample:
                     kp, kd = g_sample(cid)
                 elif locked:
@@ -152,7 +181,11 @@ class HoldController:
                 else:
                     kp, kd = g_unlock(cid)
                 cmds[cid] = MitCommand(
-                    kp=kp, kd=kd, q=q_des.get(cid, s.position), dq=0.0, tau=0.0
+                    kp=kp,
+                    kd=kd,
+                    q=q_des.get(cid, float(s.position)),
+                    dq=0.0,
+                    tau=0.0,
                 )
             self.arm.mit(cmds)
         except Exception:
@@ -164,16 +197,18 @@ class HoldController:
             time.sleep(0.02)
 
 
-def average_state(arm: Arm, duration_s: float) -> tuple[list[float], list[float]]:
+def average_limb_state(limb: Limb, duration_s: float) -> tuple[list[float], list[float]]:
+    """Average q, tau for limb motors in limb.can_ids order."""
     n = 0
     q_sum: list[float] | None = None
     t_sum: list[float] | None = None
     dt = 1.0 / SAMPLE_HZ
     t0 = time.perf_counter()
+    order = list(limb.can_ids)
     while time.perf_counter() - t0 < duration_s:
-        states = arm.states()
-        q = [s.position for s in states]
-        tau = [s.torque for s in states]
+        by_id = {int(s.can_id): s for s in limb.states()}
+        q = [float(by_id[c].position) for c in order]
+        tau = [float(by_id[c].torque) for c in order]
         if q_sum is None:
             q_sum = [0.0] * len(q)
             t_sum = [0.0] * len(tau)
@@ -186,26 +221,59 @@ def average_state(arm: Arm, duration_s: float) -> tuple[list[float], list[float]
     return [v / n for v in q_sum], [v / n for v in t_sum]
 
 
+def resolve_limb(arm: Arm, side: str) -> Limb:
+    limb = arm.left if side == "left" else arm.right
+    if limb is None or not limb.present:
+        raise RuntimeError(
+            f"{side} arm is not configured in this YAML "
+            f"(left={arm.left is not None and arm.left.present}, "
+            f"right={arm.right is not None and arm.right.present})"
+        )
+    return limb
+
+
 def main() -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Interactive coupled gravity identification")
+    parser = argparse.ArgumentParser(
+        description="Interactive coupled gravity identification (per side)"
+    )
+    parser.add_argument(
+        "--side",
+        choices=("left", "right"),
+        default="left",
+        help="which arm to identify (default left)",
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help=f"YAML path (default: {DEFAULT_CONFIG}; "
+        f"use {DUAL_CONFIG} for right arm)",
+    )
     parser.add_argument(
         "--scale",
         type=float,
         default=0.9,
         help="scale written into output YAML (default 0.9)",
     )
+    parser.add_argument(
+        "--legacy-root-yaml",
+        action="store_true",
+        help="emit root gravity: (for arm_5dof) instead of left:/right: nested",
+    )
     args = parser.parse_args()
 
-    print("=== 重力辨识 identify_gravity（耦合模型）===", flush=True)
-    print(f"config: {CONFIG}", flush=True)
+    if args.config is None:
+        args.config = DUAL_CONFIG if args.side == "right" else DEFAULT_CONFIG
+
+    print("=== 重力辨识 identify_gravity（耦合 / 按侧）===", flush=True)
+    print(f"config: {args.config}  side={args.side}", flush=True)
     print(
         f"""
-操作（请严格按序）：
+操作（请严格按序）——仅移动 **{args.side}** 侧：
 
-  1. 启动后默认 LOCK。
-  2. u  — 解锁跟手（双手托住重量再掰）。
+  1. 启动后默认 LOCK 本侧；对侧软保持不动。
+  2. u  — 解锁跟手（双手托住重量再掰本侧）。
   3. l  — 锁定当前角（可松手检查）。
   4. Enter — 在锁定目标上加硬采样（不改目标角）。
   5. 重复 ≥20 点（耦合需要多轴组合：肩肘高低/伸屈一起变）。
@@ -217,7 +285,7 @@ def main() -> int:
         flush=True,
     )
 
-    arm = Arm.from_yaml(CONFIG)
+    arm = Arm.from_yaml(args.config)
     ctrl: HoldController | None = None
     samples_q: list[list[float]] = []
     samples_tau: list[list[float]] = []
@@ -226,25 +294,49 @@ def main() -> int:
 
     try:
         arm.enable()
+        # Disable both sides' gravity feedforward during identification
+        if arm.left and arm.left.present:
+            arm.left.set_gravity_enabled(False)
+        if arm.right and arm.right.present:
+            arm.right.set_gravity_enabled(False)
+        # Legacy single-arm path also clears left via root API
         arm.set_gravity_enabled(False)
+
         for _ in range(30):
             arm._arm.send_zero_mit_all()
             time.sleep(0.01)
 
-        states = arm.states()
-        can_ids = [s.can_id for s in states]
+        limb = resolve_limb(arm, args.side)
+        can_ids = list(limb.can_ids)
         names = [f"0x{cid:02X}" for cid in can_ids]
+        print(
+            f"focus {args.side}: " + ", ".join(f"0x{c:02X}" for c in can_ids),
+            flush=True,
+        )
+
+        # Seed all motors at current pose before loop
+        for s in arm.states():
+            arm.mit(
+                int(s.can_id),
+                kp=KP_OTHER,
+                kd=KD_OTHER,
+                q=float(s.position),
+                dq=0.0,
+                tau=0.0,
+            )
 
         arm.start_mit_loop(hz=1000.0, home=False)
-        ctrl = HoldController(arm)
+        ctrl = HoldController(arm, limb)
         ctrl.start()
         time.sleep(0.2)
-        print("已 LOCK 启动姿态。移动请先 u。", flush=True)
+        print(f"已 LOCK [{args.side}] 启动姿态。移动请先 u。", flush=True)
 
         while True:
             st = "LOCK" if (ctrl and ctrl.locked) else "UNLOCK"
             try:
-                line = input(f"[{len(samples_q)} samples | {st}] > ").strip().lower()
+                line = input(
+                    f"[{args.side} | {len(samples_q)} samples | {st}] > "
+                ).strip().lower()
             except EOFError:
                 line = "q"
 
@@ -271,7 +363,7 @@ def main() -> int:
             ctrl.begin_sample()
             print(f"  采样 {SETTLE_S:.1f}s …", flush=True)
             time.sleep(0.1)
-            q_mean, tau_mean = average_state(arm, SETTLE_S)
+            q_mean, tau_mean = average_limb_state(limb, SETTLE_S)
             samples_q.append(q_mean)
             samples_tau.append(tau_mean)
             preview = " ".join(
@@ -290,7 +382,10 @@ def main() -> int:
             )
             return 2
 
-        print(f"\n拟合 {len(samples_q)} 个姿态（coupled）…", flush=True)
+        print(
+            f"\n拟合 {len(samples_q)} 个姿态（coupled, side={args.side}）…",
+            flush=True,
+        )
 
         result = fit_coupled_all(
             samples_q, samples_tau, basis=DEFAULT_COUPLED_BASIS, ridge=1e-6
@@ -302,22 +397,41 @@ def main() -> int:
                 f"|w|_max={max(abs(w) for w in joint.weights):.4f}{flag}",
                 flush=True,
             )
+
+        emit_side = None if args.legacy_root_yaml else args.side
+        # Single-arm left + default config: allow root gravity for arm_5dof convenience
+        if (
+            args.side == "left"
+            and not arm.is_dual()
+            and not args.legacy_root_yaml
+            and Path(args.config).name == "arm_5dof.yaml"
+        ):
+            emit_side = None
+
         yaml_text = format_coupled_yaml(
             result,
             enabled=True,
             scale=args.scale,
             use_measured_q=True,
             comments=names,
+            side=emit_side,
         )
-        out = Path("gravity_coupled_identified.yaml")
+        out = Path(f"gravity_coupled_identified_{args.side}.yaml")
 
-        print("\n--- 粘贴到 arm_5dof.yaml（或替换 gravity: 段）---\n", flush=True)
+        if emit_side:
+            paste_hint = (
+                f"将下面片段合并进 arm_dual_10dof.yaml 的 **{args.side}:** 段 "
+                f"（替换该侧 gravity:），并设 enabled: true"
+            )
+        else:
+            paste_hint = "将下面片段合并进 arm_5dof.yaml 的 gravity: 段"
+
+        print(f"\n--- {paste_hint} ---\n", flush=True)
         print(yaml_text, flush=True)
         out.write_text(yaml_text, encoding="utf-8")
         print(f"已写入 {out.resolve()}", flush=True)
         print(
-            "启用：将 gravity.coupled 段并入 arm_5dof.yaml 后 "
-            "pip install -e ./dm_openarm（若改了 C++）并 hold 验证。",
+            f"启用后: hold / move 用 arm.{args.side}.set_gravity_enabled(True) 验证。",
             flush=True,
         )
         return 0
@@ -325,6 +439,9 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\n中断。", flush=True)
         return 130
+    except Exception as exc:
+        print(f"FAIL: {exc}", flush=True)
+        return 1
     finally:
         if ctrl is not None:
             ctrl.stop()

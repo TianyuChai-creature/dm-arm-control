@@ -126,18 +126,23 @@ arm.disable()
 "
 
 # 2) 交互耦合辨识（多轴组合姿态 ≥20 点）
-python python_script/identify_gravity.py
-# 输出 gravity_coupled_identified.yaml → 合并进 arm_5dof.yaml 的 gravity:
+# 左臂（默认 arm_5dof.yaml → 根 gravity:）
+python python_script/identify_gravity.py --side left
+
+# 右臂（双臂配置；输出 nested right: gravity）
+python python_script/identify_gravity.py \
+  --config dm_openarm/config/arm_dual_10dof.yaml --side right
+# 输出 gravity_coupled_identified_{left|right}.yaml
 ```
 
 辨识脚本命令：
 
 | 命令 | 含义 |
 | --- | --- |
-| `u` | 解锁跟手（**双手托住**再掰） |
+| `u` | 解锁跟手（**双手托住**再掰**本侧**） |
 | `l` | 锁定当前角（可松手检查） |
 | `Enter` | 在**已锁定目标**上加硬采样（不改目标角，避免突然松弛） |
-| `f` | 拟合并写入 `gravity_coupled_identified.yaml` |
+| `f` | 拟合并写入 `gravity_coupled_identified_{side}.yaml` |
 | `q` | 放弃 |
 
 要点：
@@ -279,7 +284,7 @@ finally:
 | `python_script/read_states.py` | 持续打印各轴状态（Ctrl+C 退出） |
 | `python_script/enable_disable.py` | 使能后等待回车再失能 |
 | `python_script/mit_control_one_motor.py` | 启动 MIT loop 并驱动单轴（会运动） |
-| `python_script/identify_gravity.py` | 交互采样姿态，拟合 gravity YAML |
+| `python_script/identify_gravity.py` | 按侧耦合重力辨识（`--side left\|right`） |
 | `python_script/hold_with_gravity.py` | 重力前馈 + 软刚度保持当前姿态 |
 | `python_script/move_joints_demo.py` | 五次多项式关节轨迹 + 耦合重力（小角度） |
 
@@ -307,6 +312,8 @@ arm.disable()
 
 扫描：`python python_script/scan_motors_online.py`  
 配置：`dm_openarm/config/arm_dual_10dof.yaml`（旧 `arm_5dof.yaml` 仍为单左臂）。
+
+右臂重力辨识后，把 `gravity_coupled_identified_right.yaml` 中的 `right.gravity` 合并进双臂配置，并 `arm.right.set_gravity_enabled(True)` 验证。
 
 ## 关节轨迹跟踪
 

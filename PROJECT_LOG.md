@@ -153,3 +153,9 @@ python_script/                   # 独立 Python 脚本
 - Python：`Arm.left` / `Arm.right`（`Limb`）：`mit` / `move_joints` / 重力
 - 设备级：`enable` / `start_mit_loop` 共享总线；双臂禁止根级 `move_joints`
 - 扫描：`python_script/scan_motors_online.py` 10/10 ONLINE
+
+### 2026-07-21 — identify_gravity 按侧
+
+- `--side left|right` + `--config`；仅操作本侧，对侧软保持
+- 输出 `gravity_coupled_identified_{side}.yaml`（nested `left:`/`right:` 或单臂根 `gravity:`）
+- 大电机增益按 0x04/05/24/25 判定（修复右腕被当成大电机）
