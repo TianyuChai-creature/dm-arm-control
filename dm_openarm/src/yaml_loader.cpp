@@ -176,7 +176,7 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
     throw std::runtime_error("motors must contain at least one motor");
   }
 
-  // Optional gravity section. Defaults: disabled, identity scale, zeros.
+  // Optional gravity section. Defaults: disabled, decoupled, zeros.
   config.gravity.joints.assign(config.motors.size(), JointGravityParam{});
   if(root["gravity"])
   {
@@ -184,6 +184,22 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
     if(gravity["enabled"])
     {
       config.gravity.enabled = gravity["enabled"].as<bool>();
+    }
+    if(gravity["mode"])
+    {
+      const std::string mode = gravity["mode"].as<std::string>();
+      if(mode == "coupled")
+      {
+        config.gravity.mode = GravityMode::Coupled;
+      }
+      else if(mode == "decoupled")
+      {
+        config.gravity.mode = GravityMode::Decoupled;
+      }
+      else
+      {
+        throw std::runtime_error("gravity.mode must be 'decoupled' or 'coupled'");
+      }
     }
     if(gravity["scale"])
     {
@@ -208,7 +224,6 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
       for(std::size_t i = 0; i < gravity["joints"].size(); ++i)
       {
         const auto joint = gravity["joints"][i];
-        const std::string prefix = "gravity.joints[" + std::to_string(i) + "]";
         JointGravityParam param;
         if(joint["amp"])
         {
@@ -224,6 +239,55 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
         }
         config.gravity.joints[i] = param;
       }
+    }
+    if(gravity["coupled"])
+    {
+      const auto coupled = gravity["coupled"];
+      if(!coupled["basis"] || !coupled["basis"].IsSequence())
+      {
+        throw std::runtime_error("gravity.coupled.basis must be a sequence");
+      }
+      if(!coupled["weights"] || !coupled["weights"].IsSequence())
+      {
+        throw std::runtime_error("gravity.coupled.weights must be a sequence");
+      }
+      CoupledGravityParam cp;
+      for(std::size_t k = 0; k < coupled["basis"].size(); ++k)
+      {
+        cp.basis.push_back(coupled["basis"][k].as<std::string>());
+      }
+      if(cp.basis.empty())
+      {
+        throw std::runtime_error("gravity.coupled.basis must not be empty");
+      }
+      if(coupled["weights"].size() != config.motors.size())
+      {
+        throw std::runtime_error(
+          "gravity.coupled.weights length must match motors length");
+      }
+      for(std::size_t j = 0; j < coupled["weights"].size(); ++j)
+      {
+        const auto row = coupled["weights"][j];
+        if(!row.IsSequence() || row.size() != cp.basis.size())
+        {
+          throw std::runtime_error(
+            "gravity.coupled.weights[" + std::to_string(j) +
+            "] must be a sequence of length basis");
+        }
+        std::vector<double> w;
+        w.reserve(cp.basis.size());
+        for(std::size_t k = 0; k < row.size(); ++k)
+        {
+          w.push_back(row[k].as<double>());
+        }
+        cp.weights.push_back(std::move(w));
+      }
+      config.gravity.coupled = std::move(cp);
+    }
+    if(config.gravity.mode == GravityMode::Coupled &&
+       config.gravity.coupled.basis.empty())
+    {
+      throw std::runtime_error("gravity.mode is coupled but gravity.coupled is missing");
     }
   }
 

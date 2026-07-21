@@ -8,7 +8,6 @@ namespace dm_openarm {
 
 MitLoopController::MitLoopController(DmArm& arm)
   : arm_(arm)
-  , gravity_model_(arm.config().gravity.joints)
 {
   const auto& motors = arm_.config().motors;
   can_ids_.reserve(motors.size());
@@ -18,21 +17,23 @@ MitLoopController::MitLoopController(DmArm& arm)
     can_ids_.push_back(motor.can_id);
   }
 
-  // Align gravity param count with motors (pad zeros if YAML shorter).
-  if(gravity_model_.size() != motors.size())
+  const auto& gcfg = arm.config().gravity;
+  std::vector<JointGravityParam> joints = gcfg.joints;
+  if(joints.size() != motors.size())
   {
     std::vector<JointGravityParam> padded(motors.size());
-    const auto& src = arm.config().gravity.joints;
-    for(std::size_t i = 0; i < padded.size() && i < src.size(); ++i)
+    for(std::size_t i = 0; i < padded.size() && i < joints.size(); ++i)
     {
-      padded[i] = src[i];
+      padded[i] = joints[i];
     }
-    gravity_model_ = GravityModel(std::move(padded));
+    joints = std::move(padded);
   }
 
-  gravity_enabled_ = arm.config().gravity.enabled;
-  gravity_scale_ = arm.config().gravity.scale;
-  gravity_use_measured_q_ = arm.config().gravity.use_measured_q;
+  gravity_model_ = GravityModel(gcfg.mode, std::move(joints), gcfg.coupled);
+
+  gravity_enabled_ = gcfg.enabled;
+  gravity_scale_ = gcfg.scale;
+  gravity_use_measured_q_ = gcfg.use_measured_q;
 }
 
 MitLoopController::~MitLoopController()

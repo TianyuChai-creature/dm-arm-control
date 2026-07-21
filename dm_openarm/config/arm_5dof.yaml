@@ -17,6 +17,7 @@ control:
 # Joint order must match motors[] below.
 gravity:
   enabled: true
+  mode: decoupled   # switch to coupled after identify_gravity --mode coupled
   scale: 0.9
   use_measured_q: true
   joints:

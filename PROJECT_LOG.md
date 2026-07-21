@@ -122,3 +122,11 @@ python_script/                   # 独立 Python 脚本
 - Python：`set_gravity_enabled`、`set_gravity_scale`、`gravity_torques`；`start_mit_loop(home=False)` 支持不回零保持
 - 示例：`python_script/hold_with_gravity.py`
 - 辨识：`python_script/identify_gravity.py` + `dm_openarm.gravity_fit`（线性 LS 拟合 amp/phase/bias，输出 YAML）
+
+### 2026-07-20 — 耦合重力（分支 feature/coupled-gravity）
+
+- 模型：`mode: decoupled|coupled`；耦合 \(\tau=W\phi(q)\)，basis 含 sin/cos 单关节与 `sin/cos(q3+q4)`
+- Python：`build_phi` / `fit_coupled_all` / `format_coupled_yaml`
+- C++：`GravityModel` 双模式；YAML 解析 `gravity.coupled`
+- 辨识：`identify_gravity.py --mode coupled`（默认），输出 `gravity_coupled_identified.yaml`
+- 兼容：现网 `mode: decoupled` + 空载辨识参数不变

@@ -196,6 +196,33 @@ Ctrl+C 退出。
 
 因此默认 `scale=0.9`。长期要“更软又更准”，需要更好的 \(g(q)\)（耦合项/多姿态残差），而不是只拧 `kp`。
 
+### 耦合重力（可选升级）
+
+解耦模型在**个别姿态**仍可能误差大。可选 **耦合** 模型：
+
+\[
+\tau_i(\mathbf{q})=\sum_k w_{ik}\,\phi_k(\mathbf{q})
+\]
+
+默认基函数：`one`, `sin/cos q0..q4`, `sin/cos(q3+q4)`（肩肘耦合）。
+
+```bash
+# 多轴组合采样 ≥20 点，拟合耦合系数
+python python_script/identify_gravity.py --mode coupled
+# 输出 gravity_coupled_identified.yaml → 合并进 arm_5dof.yaml 并设 mode: coupled
+
+# 仍可用解耦
+python python_script/identify_gravity.py --mode decoupled
+```
+
+| | 解耦 | 耦合 |
+|--|------|------|
+| 现场 | 多姿态静持 | 相同，更强调肩肘**组合**姿态 |
+| 拟合 | 每轴 3 参数 | 每轴对 \(\phi(\mathbf{q})\) 回归 |
+| YAML | `mode: decoupled` + `joints:` | `mode: coupled` + `coupled.basis/weights` |
+
+**不做**末端负载模型（工具未接入前）；轨迹 API 为后续分支。
+
 ## 单位约定
 
 | 字段 | 含义 | 单位 |
