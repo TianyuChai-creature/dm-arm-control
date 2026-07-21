@@ -20,13 +20,10 @@ struct MotorConfig {
 
 struct GravityConfig {
   bool enabled{false};
-  GravityMode mode{GravityMode::Decoupled};
   double scale{1.0};
   /// If true, g(q) uses measured joint positions; else uses MIT command q.
   bool use_measured_q{true};
-  /// Used when mode == Decoupled (and as optional fallback table).
-  std::vector<JointGravityParam> joints;
-  /// Used when mode == Coupled.
+  /// Coupled gravity only: basis + weights[n_motors][K].
   CoupledGravityParam coupled;
 };
 

@@ -4,43 +4,24 @@
 
 namespace dm_openarm {
 
-GravityModel::GravityModel(std::vector<JointGravityParam> joints)
-  : mode_(GravityMode::Decoupled)
-  , joints_(std::move(joints))
+GravityModel::GravityModel(CoupledGravityParam coupled)
+  : coupled_(std::move(coupled))
 {
-}
-
-GravityModel::GravityModel(
-  GravityMode mode,
-  std::vector<JointGravityParam> joints,
-  CoupledGravityParam coupled)
-  : mode_(mode)
-  , joints_(std::move(joints))
-  , coupled_(std::move(coupled))
-{
-  if(mode_ == GravityMode::Coupled)
+  if(coupled_.basis.empty())
   {
-    if(coupled_.basis.empty())
+    throw std::invalid_argument("coupled gravity: basis must not be empty");
+  }
+  if(coupled_.weights.empty())
+  {
+    throw std::invalid_argument("coupled gravity: weights must not be empty");
+  }
+  for(const auto& row : coupled_.weights)
+  {
+    if(row.size() != coupled_.basis.size())
     {
-      throw std::invalid_argument("coupled gravity: basis must not be empty");
-    }
-    for(const auto& row : coupled_.weights)
-    {
-      if(row.size() != coupled_.basis.size())
-      {
-        throw std::invalid_argument("coupled gravity: weight row size must match basis");
-      }
+      throw std::invalid_argument("coupled gravity: weight row size must match basis");
     }
   }
-}
-
-std::size_t GravityModel::size() const noexcept
-{
-  if(mode_ == GravityMode::Coupled)
-  {
-    return coupled_.weights.size();
-  }
-  return joints_.size();
 }
 
 double GravityModel::eval_basis(const std::string& name, const std::vector<double>& q_in)
@@ -119,24 +100,12 @@ double GravityModel::eval_basis(const std::string& name, const std::vector<doubl
   throw std::invalid_argument("unknown gravity basis name: " + name);
 }
 
-std::vector<double> GravityModel::compute_decoupled(const std::vector<double>& q) const
+std::vector<double> GravityModel::compute(const std::vector<double>& q) const
 {
-  if(q.size() != joints_.size())
+  if(coupled_.weights.empty())
   {
-    throw std::invalid_argument("gravity model: q size must match joint count");
+    throw std::runtime_error("gravity model has no coupled weights configured");
   }
-
-  std::vector<double> tau(joints_.size(), 0.0);
-  for(std::size_t i = 0; i < joints_.size(); ++i)
-  {
-    const auto& p = joints_[i];
-    tau[i] = p.amp * std::sin(q[i] + p.phase) + p.bias;
-  }
-  return tau;
-}
-
-std::vector<double> GravityModel::compute_coupled(const std::vector<double>& q) const
-{
   if(q.size() != coupled_.weights.size())
   {
     throw std::invalid_argument("coupled gravity: q size must match weight rows");
@@ -159,15 +128,6 @@ std::vector<double> GravityModel::compute_coupled(const std::vector<double>& q) 
     tau[j] = sum;
   }
   return tau;
-}
-
-std::vector<double> GravityModel::compute(const std::vector<double>& q) const
-{
-  if(mode_ == GravityMode::Coupled)
-  {
-    return compute_coupled(q);
-  }
-  return compute_decoupled(q);
 }
 
 std::vector<double> GravityModel::compute(const std::vector<double>& q, double scale) const

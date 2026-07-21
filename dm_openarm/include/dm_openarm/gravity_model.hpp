@@ -8,37 +8,19 @@
 
 namespace dm_openarm {
 
-/// Per-joint gravity parameters: tau_i = amp * sin(q_i + phase) + bias
-struct JointGravityParam {
-  double amp{0.0};
-  double phase{0.0};
-  double bias{0.0};
-};
-
-enum class GravityMode {
-  Decoupled,
-  Coupled,
-};
-
-/// Coupled: tau = W * phi(q). basis names must match Python gravity_fit.
+/// Coupled gravity: tau = W * phi(q). basis names match Python gravity_fit.
 struct CoupledGravityParam {
   std::vector<std::string> basis;
   std::vector<std::vector<double>> weights;  // [joint][k]
 };
 
-/// Gravity model: decoupled sin or coupled linear basis.
+/// Multi-joint coupled gravity model only.
 class GravityModel {
 public:
   GravityModel() = default;
-  explicit GravityModel(std::vector<JointGravityParam> joints);
-  GravityModel(
-    GravityMode mode,
-    std::vector<JointGravityParam> joints,
-    CoupledGravityParam coupled);
+  explicit GravityModel(CoupledGravityParam coupled);
 
-  GravityMode mode() const noexcept { return mode_; }
-  std::size_t size() const noexcept;
-  const std::vector<JointGravityParam>& joints() const noexcept { return joints_; }
+  std::size_t size() const noexcept { return coupled_.weights.size(); }
   const CoupledGravityParam& coupled() const noexcept { return coupled_; }
 
   /// Compute gravity torques [N·m] for joint positions q [rad], motor order.
@@ -51,11 +33,6 @@ public:
   static double eval_basis(const std::string& name, const std::vector<double>& q);
 
 private:
-  std::vector<double> compute_decoupled(const std::vector<double>& q) const;
-  std::vector<double> compute_coupled(const std::vector<double>& q) const;
-
-  GravityMode mode_{GravityMode::Decoupled};
-  std::vector<JointGravityParam> joints_;
   CoupledGravityParam coupled_;
 };
 

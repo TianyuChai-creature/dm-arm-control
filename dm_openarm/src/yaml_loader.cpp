@@ -176,30 +176,13 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
     throw std::runtime_error("motors must contain at least one motor");
   }
 
-  // Optional gravity section. Defaults: disabled, decoupled, zeros.
-  config.gravity.joints.assign(config.motors.size(), JointGravityParam{});
+  // Optional gravity section (coupled only). Defaults: disabled.
   if(root["gravity"])
   {
     const auto gravity = root["gravity"];
     if(gravity["enabled"])
     {
       config.gravity.enabled = gravity["enabled"].as<bool>();
-    }
-    if(gravity["mode"])
-    {
-      const std::string mode = gravity["mode"].as<std::string>();
-      if(mode == "coupled")
-      {
-        config.gravity.mode = GravityMode::Coupled;
-      }
-      else if(mode == "decoupled")
-      {
-        config.gravity.mode = GravityMode::Decoupled;
-      }
-      else
-      {
-        throw std::runtime_error("gravity.mode must be 'decoupled' or 'coupled'");
-      }
     }
     if(gravity["scale"])
     {
@@ -209,36 +192,19 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
     {
       config.gravity.use_measured_q = gravity["use_measured_q"].as<bool>();
     }
-    if(gravity["joints"])
+    if(gravity["mode"])
     {
-      if(!gravity["joints"].IsSequence())
-      {
-        throw std::runtime_error("config field must be a sequence: gravity.joints");
-      }
-      if(gravity["joints"].size() != config.motors.size())
+      const std::string mode = gravity["mode"].as<std::string>();
+      if(mode != "coupled")
       {
         throw std::runtime_error(
-          "gravity.joints length must match motors length (" +
-          std::to_string(config.motors.size()) + ")");
+          "gravity.mode must be 'coupled' (decoupled mode has been removed)");
       }
-      for(std::size_t i = 0; i < gravity["joints"].size(); ++i)
-      {
-        const auto joint = gravity["joints"][i];
-        JointGravityParam param;
-        if(joint["amp"])
-        {
-          param.amp = joint["amp"].as<double>();
-        }
-        if(joint["phase"])
-        {
-          param.phase = joint["phase"].as<double>();
-        }
-        if(joint["bias"])
-        {
-          param.bias = joint["bias"].as<double>();
-        }
-        config.gravity.joints[i] = param;
-      }
+    }
+    if(gravity["joints"])
+    {
+      throw std::runtime_error(
+        "gravity.joints is no longer supported; use gravity.coupled only");
     }
     if(gravity["coupled"])
     {
@@ -284,10 +250,11 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
       }
       config.gravity.coupled = std::move(cp);
     }
-    if(config.gravity.mode == GravityMode::Coupled &&
-       config.gravity.coupled.basis.empty())
+    if(config.gravity.enabled &&
+       (config.gravity.coupled.basis.empty() || config.gravity.coupled.weights.empty()))
     {
-      throw std::runtime_error("gravity.mode is coupled but gravity.coupled is missing");
+      throw std::runtime_error(
+        "gravity.enabled is true but gravity.coupled basis/weights are missing");
     }
   }
 

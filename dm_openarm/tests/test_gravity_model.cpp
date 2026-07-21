@@ -8,20 +8,7 @@
 int main()
 {
   using dm_openarm::CoupledGravityParam;
-  using dm_openarm::GravityMode;
   using dm_openarm::GravityModel;
-  using dm_openarm::JointGravityParam;
-
-  // Decoupled
-  {
-    GravityModel model({
-      JointGravityParam{2.0, 0.0, 0.1},
-      JointGravityParam{1.0, 0.5, 0.0},
-    });
-    const auto tau = model.compute({0.0, 0.0});
-    assert(std::abs(tau[0] - 0.1) < 1e-9);
-    assert(std::abs(tau[1] - std::sin(0.5)) < 1e-9);
-  }
 
   // Coupled: tau0 = 1.5*sin(q0) + 0.2; tau4 = 2.0*sin(q3+q4)
   {
@@ -37,8 +24,7 @@ int main()
     cp.weights[0][1] = 1.5;   // sin_q0
     cp.weights[4][11] = 2.0;  // sin_q3_q4
 
-    GravityModel model(GravityMode::Coupled, {}, cp);
-    assert(model.mode() == GravityMode::Coupled);
+    GravityModel model(cp);
     assert(model.size() == 5);
 
     const std::vector<double> q = {0.3, 0.0, 0.0, 0.4, 0.5};
@@ -49,6 +35,21 @@ int main()
 
     const auto scaled = model.compute(q, 0.5);
     assert(std::abs(scaled[0] - 0.5 * tau[0]) < 1e-9);
+  }
+
+  // Empty default model throws on compute
+  {
+    GravityModel empty;
+    bool threw = false;
+    try
+    {
+      (void)empty.compute({0.0});
+    }
+    catch(const std::exception&)
+    {
+      threw = true;
+    }
+    assert(threw);
   }
 
   std::cout << "test_gravity_model OK\n";

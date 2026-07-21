@@ -130,3 +130,11 @@ python_script/                   # 独立 Python 脚本
 - C++：`GravityModel` 双模式；YAML 解析 `gravity.coupled`
 - 辨识：`identify_gravity.py --mode coupled`（默认），输出 `gravity_coupled_identified.yaml`
 - 兼容：现网 `mode: decoupled` + 空载辨识参数不变
+
+### 2026-07-21 — 耦合重力关账（仅保留耦合）
+
+- 删除解耦模式：`JointGravityParam` / `GravityMode` / `gravity.joints` / `mode: decoupled`
+- C++ / YAML / Python 辨识与文档统一为耦合单路径 \(\tau=W\phi(q)\)
+- 删除备份 `gravity_identified.yaml`；工位参数在 `arm_5dof.yaml` / `gravity_coupled_identified.yaml`
+- 合并进入 `main`；轨迹跟踪为后续分支
+

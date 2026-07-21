@@ -23,10 +23,8 @@ from pathlib import Path
 from dm_openarm import Arm, MitCommand
 from dm_openarm.gravity_fit import (
     DEFAULT_COUPLED_BASIS,
-    fit_all_joints,
     fit_coupled_all,
     format_coupled_yaml,
-    format_gravity_yaml,
 )
 
 CONFIG = "dm_openarm/config/arm_5dof.yaml"
@@ -191,13 +189,7 @@ def average_state(arm: Arm, duration_s: float) -> tuple[list[float], list[float]
 def main() -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Interactive gravity identification")
-    parser.add_argument(
-        "--mode",
-        choices=("coupled", "decoupled"),
-        default="coupled",
-        help="fit model: coupled (default) or decoupled sin",
-    )
+    parser = argparse.ArgumentParser(description="Interactive coupled gravity identification")
     parser.add_argument(
         "--scale",
         type=float,
@@ -206,8 +198,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    print("=== 重力辨识 identify_gravity ===", flush=True)
-    print(f"config: {CONFIG}  fit_mode={args.mode}", flush=True)
+    print("=== 重力辨识 identify_gravity（耦合模型）===", flush=True)
+    print(f"config: {CONFIG}", flush=True)
     print(
         f"""
 操作（请严格按序）：
@@ -290,72 +282,44 @@ def main() -> int:
             ctrl.end_sample()
             print("  完成。下一姿态：u → 掰 → l → Enter。", flush=True)
 
-        min_samples = 3 if args.mode == "decoupled" else 8
+        min_samples = 8
         if len(samples_q) < min_samples:
             print(
-                f"样本不足（{len(samples_q)} < {min_samples}，mode={args.mode}）。",
+                f"样本不足（{len(samples_q)} < {min_samples}，耦合需多姿态）。",
                 flush=True,
             )
             return 2
 
-        print(f"\n拟合 {len(samples_q)} 个姿态（mode={args.mode}）…", flush=True)
+        print(f"\n拟合 {len(samples_q)} 个姿态（coupled）…", flush=True)
 
-        if args.mode == "decoupled":
-            fits = fit_all_joints(samples_q, samples_tau)
-            for cid, fit in zip(can_ids, fits):
-                flag = "  << rmse 偏大" if fit.rmse > 0.1 else ""
-                print(
-                    f"  0x{cid:02X}: amp={fit.amp:+.4f} phase={fit.phase:+.4f} "
-                    f"bias={fit.bias:+.4f}  rmse={fit.rmse:.4f}{flag}",
-                    flush=True,
-                )
-            yaml_text = format_gravity_yaml(
-                fits,
-                enabled=True,
-                scale=args.scale,
-                use_measured_q=True,
-                comments=names,
+        result = fit_coupled_all(
+            samples_q, samples_tau, basis=DEFAULT_COUPLED_BASIS, ridge=1e-6
+        )
+        for cid, joint in zip(can_ids, result.joints):
+            flag = "  << rmse 偏大" if joint.rmse > 0.1 else ""
+            print(
+                f"  0x{cid:02X}: rmse={joint.rmse:.4f}  "
+                f"|w|_max={max(abs(w) for w in joint.weights):.4f}{flag}",
+                flush=True,
             )
-            out = Path("gravity_identified.yaml")
-        else:
-            # Also print decoupled baseline for comparison
-            dec = fit_all_joints(samples_q, samples_tau)
-            print("  [decoupled baseline]", flush=True)
-            for cid, fit in zip(can_ids, dec):
-                print(
-                    f"    0x{cid:02X}: amp={fit.amp:+.4f} rmse={fit.rmse:.4f}",
-                    flush=True,
-                )
-            result = fit_coupled_all(
-                samples_q, samples_tau, basis=DEFAULT_COUPLED_BASIS, ridge=1e-6
-            )
-            print("  [coupled]", flush=True)
-            for cid, joint in zip(can_ids, result.joints):
-                flag = "  << rmse 偏大" if joint.rmse > 0.1 else ""
-                print(
-                    f"    0x{cid:02X}: rmse={joint.rmse:.4f}  "
-                    f"|w|_max={max(abs(w) for w in joint.weights):.4f}{flag}",
-                    flush=True,
-                )
-            yaml_text = format_coupled_yaml(
-                result,
-                enabled=True,
-                scale=args.scale,
-                use_measured_q=True,
-                comments=names,
-            )
-            out = Path("gravity_coupled_identified.yaml")
+        yaml_text = format_coupled_yaml(
+            result,
+            enabled=True,
+            scale=args.scale,
+            use_measured_q=True,
+            comments=names,
+        )
+        out = Path("gravity_coupled_identified.yaml")
 
         print("\n--- 粘贴到 arm_5dof.yaml（或替换 gravity: 段）---\n", flush=True)
         print(yaml_text, flush=True)
         out.write_text(yaml_text, encoding="utf-8")
         print(f"已写入 {out.resolve()}", flush=True)
-        if args.mode == "coupled":
-            print(
-                "启用：将 mode: coupled 与 coupled: 段并入配置后 "
-                "pip install -e ./dm_openarm（若改了 C++）并 hold 验证。",
-                flush=True,
-            )
+        print(
+            "启用：将 gravity.coupled 段并入 arm_5dof.yaml 后 "
+            "pip install -e ./dm_openarm（若改了 C++）并 hold 验证。",
+            flush=True,
+        )
         return 0
 
     except KeyboardInterrupt:

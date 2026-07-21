@@ -10,21 +10,13 @@ usb:
 control:
   loop_period_ms: 1
 
-# Gravity: coupled model (identify_gravity --mode coupled, 25 poses).
+# Gravity: coupled model only (identify_gravity.py, multi-pose).
 # 0x01–0x03 ~0; 0x04/0x05 carry load + sin/cos(q3+q4). scale 0.9 under-compensate.
-# Decoupled backup: gravity_identified.yaml. Coupled source: gravity_coupled_identified.yaml.
-# Joint order must match motors[] below.
+# Source of truth: gravity_coupled_identified.yaml. Joint order matches motors[].
 gravity:
   enabled: true
-  mode: coupled
   scale: 0.9
   use_measured_q: true
-  joints:
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x01 fallback
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x02
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x03
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x04
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x05
   coupled:
     basis:
       - one

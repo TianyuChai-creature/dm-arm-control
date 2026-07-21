@@ -66,8 +66,10 @@ gravity:
   enabled: true
   scale: 0.9          # 默认略欠补偿，软刚度下更稳
   use_measured_q: true
-  joints:             # 与 motors[] 顺序一致
-    - { amp: ..., phase: ..., bias: ... }  # 每轴一项
+  coupled:            # 仅支持耦合模型 τ = W·φ(q)
+    basis: [one, sin_q0, ..., sin_q3_q4, cos_q3_q4]
+    weights:          # 与 motors[] 同序，每行长度 = basis
+      - [...]
 ```
 
 ## 重力补偿（工位现状）
@@ -80,41 +82,33 @@ MIT 下发力矩为：
 \tau_{\text{sent}} = k_p(q_{\text{des}}-q) + k_d(\dot q_{\text{des}}-\dot q) + \tau_{\text{cmd}} + s\cdot\hat\tau_g(q)
 \]
 
-每轴解耦模型（便于辨识）：
+**仅保留耦合模型**（解耦 `amp/phase/bias` 已移除）：
 
 \[
-\hat\tau_{g,i} = a_i\sin(q_i+\phi_i) + b_i
+\hat\tau_{g,i}(\mathbf{q})=\sum_k w_{ik}\,\phi_k(\mathbf{q})
 \]
 
-- \(a\) = `amp`，\(\phi\) = `phase`，\(b\) = `bias`，单位 N·m / rad  
-- \(s\) = YAML / API 中的 `scale`  
+默认基函数：`one`, `sin/cos q0..q4`, `sin/cos(q3+q4)`（肩肘耦合）。
+
+- \(s\) = YAML / API 中的 `scale`（默认 **0.9** 欠补偿）  
 - loop 内：`tau_sent = cmd.tau + scale * g(q)`  
 - 软保持时建议锁定姿态后用 **目标角** \(q_{\text{des}}\) 算 \(g\)（避免下沉正反馈）；跟手移动时可用测量角
 
-### 工位辨识结果（2026-07-20，已写入配置）
+### 工位辨识结果（2026-07-21，耦合已验收并写入配置）
 
-空载、当前机械零位下辨识；**近端承力、远端很小**（与实机观察一致）：
+空载、当前机械零位；**0x01–0x03 接近 0，0x04/0x05 主承力**。参数见 `arm_5dof.yaml` / `gravity_coupled_identified.yaml`。
 
-| CAN ID | 名称 | amp (N·m) | phase (rad) | bias (N·m) | 说明 |
-| --- | --- | --- | --- | --- | --- |
-| `0x01` | end_effector | 0.230 | -2.212 | 0.140 | 末端重力较小 |
-| `0x02` | wrist_2 | **0** | 0 | 0 | 结构上几乎不扛重力 |
-| `0x03` | wrist_3 | **0** | 0 | 0 | 同上 |
-| `0x04` | elbow | **2.932** | -0.015 | 0.072 | 主要承力 |
-| `0x05` | shoulder | **3.395** | -0.045 | 0.145 | 最大 |
-
-配置中默认 `gravity.enabled: true`，`scale: **0.9**`（略欠补偿：软 `kp` 下过补偿会顶过头/过冲）。
-
-原始拟合备份：`gravity_identified.yaml`（0x02/0x03 拟合本就接近 0，配置里写成显式 0）。
+配置中默认 `gravity.enabled: true`，`scale: **0.9**`。
 
 ### 验收结论（当前）
 
 | 项 | 状态 |
 | --- | --- |
 | 通信 / 使能 / 读状态 | 可用（dmcan + 经典 CAN 1M） |
-| 重力前馈整体效果 | **可用**（肩肘能明显托住） |
-| 个别姿态 | 仍可能慢沉或过冲（解耦模型 + 软刚度） |
+| 耦合重力前馈 | **已验收**（肩肘明显托住，优于旧解耦） |
 | 调参方向 | 过冲 → 降 `scale`；慢沉 → 略升 `scale` 或略加 `kp`/`kd` |
+| 末端负载模型 | **不做**（工具未接入前） |
+| 轨迹跟踪 | 后续分支 |
 
 ### 辨识流程（换零位或换空载结构后重做）
 
@@ -125,15 +119,15 @@ pip install -e ./dm_openarm
 # 1) 机械摆到期望零位后设零（写 flash）
 python -c "
 from dm_openarm import Arm
-import time
 arm = Arm.from_yaml('dm_openarm/config/arm_5dof.yaml')
 arm.enable()
 arm.set_zero_all(persist=True)
 arm.disable()
 "
 
-# 2) 交互辨识
+# 2) 交互耦合辨识（多轴组合姿态 ≥20 点）
 python python_script/identify_gravity.py
+# 输出 gravity_coupled_identified.yaml → 合并进 arm_5dof.yaml 的 gravity:
 ```
 
 辨识脚本命令：
@@ -143,14 +137,14 @@ python python_script/identify_gravity.py
 | `u` | 解锁跟手（**双手托住**再掰） |
 | `l` | 锁定当前角（可松手检查） |
 | `Enter` | 在**已锁定目标**上加硬采样（不改目标角，避免突然松弛） |
-| `f` | 拟合并写入 `gravity_identified.yaml` |
+| `f` | 拟合并写入 `gravity_coupled_identified.yaml` |
 | `q` | 放弃 |
 
 要点：
 
-- 以整臂姿态扫工作空间即可，**不必**每次只拧一轴，但**每个关节角都要有大范围样本**（尤其 0x04/0x05）  
-- 每点**停稳**再锁、再采；肩肘要覆盖大角度  
-- 拟合后把 `gravity:` 段合并进 `arm_5dof.yaml`（或直接用仓库已合并版本）
+- **强调肩+肘组合姿态**，避免大量「只动一轴」  
+- 每点**停稳**再锁、再采；工作空间多点覆盖  
+- 拟合后把 `gravity:` 段合并进 `arm_5dof.yaml`
 
 ### 软保持试跑
 
@@ -170,13 +164,7 @@ Ctrl+C 退出。
 
 ### 末端加负载后是否要重标定？
 
-**要。** 当前 \(a,b\) 对应**空载**质量分布。末端加工具/工件后：
-
-\[
-\Delta\tau_i(q)\propto m_{\text{payload}}\cdot g\cdot \ell_i(q)
-\]
-
-肩、肘变化最大；腕部仍可能接近 0。
+**要。** 当前 \(W\) 对应**空载**质量分布。末端加工具/工件后肩、肘变化最大。
 
 | 情况 | 建议 |
 | --- | --- |
@@ -185,8 +173,6 @@ Ctrl+C 退出。
 | 负载常变/未知 | 需在线估计或力传感；单次空载标定不够 |
 | 临时凑合 | 可略调 `scale`，个别姿态仍会差 |
 
-换工具 = 改 \(g(q)\)，不是通信问题。
-
 ### 软刚度与补偿误差
 
 软 `kp` 时闭环几乎不“硬顶”，残差 \(\tau_{\text{true}}-s\hat\tau_g\) 会直接变成漂移/过冲：
@@ -194,34 +180,7 @@ Ctrl+C 退出。
 - **欠补偿** → 慢沉（更安全）  
 - **过补偿** → 往上顶、过冲（危险）  
 
-因此默认 `scale=0.9`。长期要“更软又更准”，需要更好的 \(g(q)\)（耦合项/多姿态残差），而不是只拧 `kp`。
-
-### 耦合重力（可选升级）
-
-解耦模型在**个别姿态**仍可能误差大。可选 **耦合** 模型：
-
-\[
-\tau_i(\mathbf{q})=\sum_k w_{ik}\,\phi_k(\mathbf{q})
-\]
-
-默认基函数：`one`, `sin/cos q0..q4`, `sin/cos(q3+q4)`（肩肘耦合）。
-
-```bash
-# 多轴组合采样 ≥20 点，拟合耦合系数
-python python_script/identify_gravity.py --mode coupled
-# 输出 gravity_coupled_identified.yaml → 合并进 arm_5dof.yaml 并设 mode: coupled
-
-# 仍可用解耦
-python python_script/identify_gravity.py --mode decoupled
-```
-
-| | 解耦 | 耦合 |
-|--|------|------|
-| 现场 | 多姿态静持 | 相同，更强调肩肘**组合**姿态 |
-| 拟合 | 每轴 3 参数 | 每轴对 \(\phi(\mathbf{q})\) 回归 |
-| YAML | `mode: decoupled` + `joints:` | `mode: coupled` + `coupled.basis/weights` |
-
-**不做**末端负载模型（工具未接入前）；轨迹 API 为后续分支。
+因此默认 `scale=0.9`。
 
 ## 单位约定
 

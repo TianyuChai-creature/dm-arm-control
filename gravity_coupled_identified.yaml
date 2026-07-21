@@ -1,15 +1,7 @@
 gravity:
   enabled: true
-  mode: coupled
   scale: 0.9
   use_measured_q: true
-  # fallback if a tool only reads joints[]
-  joints:
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x01
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x02
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x03
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x04
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x05
   coupled:
     basis:
       - one

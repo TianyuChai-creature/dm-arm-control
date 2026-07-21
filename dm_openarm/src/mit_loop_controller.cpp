@@ -18,18 +18,20 @@ MitLoopController::MitLoopController(DmArm& arm)
   }
 
   const auto& gcfg = arm.config().gravity;
-  std::vector<JointGravityParam> joints = gcfg.joints;
-  if(joints.size() != motors.size())
+  if(gcfg.enabled)
   {
-    std::vector<JointGravityParam> padded(motors.size());
-    for(std::size_t i = 0; i < padded.size() && i < joints.size(); ++i)
+    if(gcfg.coupled.basis.empty() || gcfg.coupled.weights.empty())
     {
-      padded[i] = joints[i];
+      throw std::runtime_error(
+        "gravity.enabled is true but gravity.coupled basis/weights are missing");
     }
-    joints = std::move(padded);
+    if(gcfg.coupled.weights.size() != motors.size())
+    {
+      throw std::runtime_error(
+        "gravity.coupled.weights length must match motors length");
+    }
+    gravity_model_ = GravityModel(gcfg.coupled);
   }
-
-  gravity_model_ = GravityModel(gcfg.mode, std::move(joints), gcfg.coupled);
 
   gravity_enabled_ = gcfg.enabled;
   gravity_scale_ = gcfg.scale;
