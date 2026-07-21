@@ -1,26 +1,11 @@
-usb:
-  serial: "52A871B1AA5EF4E239371A5083463F26"
-  nominal_baud: 1000000
-  data_baud: 1000000
-  # Station hardware uses classic CAN 1M (not CAN FD data-domain 5M).
-  canfd: false
-  brs: false
-  device_index: 0
-
-control:
-  loop_period_ms: 1
-
-# Gravity: coupled model (identify_gravity --mode coupled, 25 poses).
-# 0x01–0x03 ~0; 0x04/0x05 carry load + sin/cos(q3+q4). scale 0.9 under-compensate.
-# Decoupled backup: gravity_identified.yaml. Coupled source: gravity_coupled_identified.yaml.
-# Joint order must match motors[] below.
 gravity:
   enabled: true
   mode: coupled
   scale: 0.9
   use_measured_q: true
+  # fallback if a tool only reads joints[]
   joints:
-    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x01 fallback
+    - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x01
     - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x02
     - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x03
     - { amp: 0.0, phase: 0.0, bias: 0.0 }  # 0x04
@@ -46,30 +31,3 @@ gravity:
       - [0.00014966, -0.00041208, 0.00482442, -0.00056366, -0.00139086, -0.01374422, 0.00021561, 0.00396011, 0.00084746, -0.01439303, -0.00140572, 0.01279399, 0.00331081]  # 0x03
       - [2.35762738, -0.04977786, 0.30409111, -0.09802127, 1.49033119, -2.24259975, 0.14883745, -0.06095485, 0.08647771, -2.43776476, -2.25963156, 2.16067594, 2.17817849]  # 0x04
       - [1.50502837, 0.03547256, -0.90060799, 0.10636322, -0.11473113, 1.33769400, -0.23229169, -0.80629769, -0.45297887, -0.20032326, 1.60056788, 2.08508592, -1.52235983]  # 0x05
-
-motors:
-  - name: end_effector
-    model: DM4310
-    mode: MIT
-    can_id: 0x01
-    mst_id: 0x11
-  - name: wrist_2
-    model: DM4310
-    mode: MIT
-    can_id: 0x02
-    mst_id: 0x12
-  - name: wrist_3
-    model: DM4310
-    mode: MIT
-    can_id: 0x03
-    mst_id: 0x13
-  - name: elbow
-    model: DM8009
-    mode: MIT
-    can_id: 0x04
-    mst_id: 0x14
-  - name: shoulder
-    model: DM8009
-    mode: MIT
-    can_id: 0x05
-    mst_id: 0x15

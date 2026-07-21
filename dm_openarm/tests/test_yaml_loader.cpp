@@ -115,9 +115,12 @@ void test_default_config_loads()
   assert(config.loop_period == std::chrono::milliseconds(1));
   assert(config.motors.size() == 5);
   assert(config.gravity.enabled == true);
-  assert(config.gravity.mode == dm_openarm::GravityMode::Decoupled);
+  assert(config.gravity.mode == dm_openarm::GravityMode::Coupled);
   assert(config.gravity.joints.size() == 5);
   assert(std::abs(config.gravity.scale - 0.9) < 1e-9);
+  assert(config.gravity.coupled.basis.size() == 13);
+  assert(config.gravity.coupled.weights.size() == 5);
+  assert(config.gravity.coupled.weights[4].size() == 13);
 
   assert(config.motors[0].name == "end_effector");
   assert(config.motors[0].model == dm_openarm::MotorModel::DM4310);
