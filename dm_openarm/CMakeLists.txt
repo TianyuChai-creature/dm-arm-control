@@ -51,11 +51,8 @@ add_library(
   dm_openarm
   src/backend/dm_serial_backend.cpp
   src/dm_arm.cpp
-  src/gravity_model.cpp
   src/mit_control_command.cpp
   src/mit_loop_controller.cpp
-  src/motor.cpp
-  src/motor_group.cpp
   src/yaml_loader.cpp
 )
 target_include_directories(
@@ -131,6 +128,8 @@ endif()
 if(BUILD_TESTING)
   add_executable(test_yaml_loader tests/test_yaml_loader.cpp)
   target_link_libraries(test_yaml_loader PRIVATE dm_openarm)
+  target_compile_definitions(
+    test_yaml_loader PRIVATE DM_OPENARM_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   dm_openarm_set_rpath(test_yaml_loader)
   add_test(NAME test_yaml_loader COMMAND test_yaml_loader)
 
@@ -144,8 +143,4 @@ if(BUILD_TESTING)
   dm_openarm_set_rpath(test_mit_loop_controller)
   add_test(NAME test_mit_loop_controller COMMAND test_mit_loop_controller)
 
-  add_executable(test_gravity_model tests/test_gravity_model.cpp)
-  target_link_libraries(test_gravity_model PRIVATE dm_openarm)
-  dm_openarm_set_rpath(test_gravity_model)
-  add_test(NAME test_gravity_model COMMAND test_gravity_model)
 endif()

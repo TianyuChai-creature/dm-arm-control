@@ -51,10 +51,10 @@ int main(int argc, char** argv)
   {
     const auto config = dm_openarm::load_arm_config(config_path(argc, argv));
     dm_openarm::DmArm arm(config);
-    arm.connect();
+    arm.enable();
 
     arm.send_zero_mit_all();
-    std::this_thread::sleep_for(config.loop_period);
+    std::this_thread::sleep_for(std::chrono::duration<double>(1.0 / dm_openarm::kDefaultControlHz));
     auto commands = hold_commands(arm.states());
 
     while(running)
@@ -72,7 +72,8 @@ int main(int argc, char** argv)
       }
 
       const auto sleep_till =
-        current_time + std::chrono::duration_cast<clock::duration>(config.loop_period);
+        current_time + std::chrono::duration_cast<clock::duration>(
+                          std::chrono::duration<double>(1.0 / dm_openarm::kDefaultControlHz));
       std::this_thread::sleep_until(sleep_till);
     }
 

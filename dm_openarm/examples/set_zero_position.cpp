@@ -108,10 +108,10 @@ int main(int argc, char** argv)
   {
     const auto config = dm_openarm::load_arm_config(config_path);
     dm_openarm::DmArm arm(config);
-    arm.connect();
+    arm.enable();
 
     arm.send_zero_mit_all();
-    std::this_thread::sleep_for(config.loop_period);
+    std::this_thread::sleep_for(std::chrono::duration<double>(1.0 / dm_openarm::kDefaultControlHz));
     const auto before_states = arm.states();
 
     std::vector<std::uint16_t> target_ids;
@@ -145,7 +145,7 @@ int main(int argc, char** argv)
     }
 
     arm.send_zero_mit_all();
-    std::this_thread::sleep_for(config.loop_period);
+    std::this_thread::sleep_for(std::chrono::duration<double>(1.0 / dm_openarm::kDefaultControlHz));
     const auto after_states = arm.states();
     for(const auto can_id : target_ids)
     {

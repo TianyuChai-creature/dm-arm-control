@@ -2,7 +2,6 @@
 
 #include <yaml-cpp/yaml.h>
 
-#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <set>
@@ -115,11 +114,19 @@ void parse_motors_sequence(
     motor_config.can_id = parse_uint16(require_node(motor, "can_id", prefix), prefix + ".can_id");
     motor_config.mst_id = parse_uint16(require_node(motor, "mst_id", prefix), prefix + ".mst_id");
 
+    if(mst_ids.count(motor_config.can_id) != 0)
+    {
+      throw std::runtime_error("CAN ID collides with an MST ID");
+    }
     if(!can_ids.insert(motor_config.can_id).second)
     {
       std::ostringstream oss;
       oss << "duplicate CAN ID: 0x" << std::hex << motor_config.can_id;
       throw std::runtime_error(oss.str());
+    }
+    if(can_ids.count(motor_config.mst_id) != 0)
+    {
+      throw std::runtime_error("MST ID collides with a CAN ID");
     }
     if(!mst_ids.insert(motor_config.mst_id).second)
     {
@@ -130,89 +137,6 @@ void parse_motors_sequence(
 
     out.push_back(motor_config);
   }
-}
-
-GravityConfig parse_gravity(const YAML::Node& gravity, const std::string& path, std::size_t n_motors)
-{
-  GravityConfig gcfg;
-  if(gravity["enabled"])
-  {
-    gcfg.enabled = gravity["enabled"].as<bool>();
-  }
-  if(gravity["scale"])
-  {
-    gcfg.scale = gravity["scale"].as<double>();
-  }
-  if(gravity["use_measured_q"])
-  {
-    gcfg.use_measured_q = gravity["use_measured_q"].as<bool>();
-  }
-  if(gravity["mode"])
-  {
-    const std::string mode = gravity["mode"].as<std::string>();
-    if(mode != "coupled")
-    {
-      throw std::runtime_error(
-        path + ".mode must be 'coupled' (decoupled mode has been removed)");
-    }
-  }
-  if(gravity["joints"])
-  {
-    throw std::runtime_error(
-      path + ".joints is no longer supported; use gravity.coupled only");
-  }
-  if(gravity["coupled"])
-  {
-    const auto coupled = gravity["coupled"];
-    if(!coupled["basis"] || !coupled["basis"].IsSequence())
-    {
-      throw std::runtime_error(path + ".coupled.basis must be a sequence");
-    }
-    if(!coupled["weights"] || !coupled["weights"].IsSequence())
-    {
-      throw std::runtime_error(path + ".coupled.weights must be a sequence");
-    }
-    CoupledGravityParam cp;
-    for(std::size_t k = 0; k < coupled["basis"].size(); ++k)
-    {
-      cp.basis.push_back(coupled["basis"][k].as<std::string>());
-    }
-    if(cp.basis.empty())
-    {
-      throw std::runtime_error(path + ".coupled.basis must not be empty");
-    }
-    if(coupled["weights"].size() != n_motors)
-    {
-      throw std::runtime_error(
-        path + ".coupled.weights length must match limb motors length (" +
-        std::to_string(n_motors) + ")");
-    }
-    for(std::size_t j = 0; j < coupled["weights"].size(); ++j)
-    {
-      const auto row = coupled["weights"][j];
-      if(!row.IsSequence() || row.size() != cp.basis.size())
-      {
-        throw std::runtime_error(
-          path + ".coupled.weights[" + std::to_string(j) +
-          "] must be a sequence of length basis");
-      }
-      std::vector<double> w;
-      w.reserve(cp.basis.size());
-      for(std::size_t k = 0; k < row.size(); ++k)
-      {
-        w.push_back(row[k].as<double>());
-      }
-      cp.weights.push_back(std::move(w));
-    }
-    gcfg.coupled = std::move(cp);
-  }
-  if(gcfg.enabled &&
-     (gcfg.coupled.basis.empty() || gcfg.coupled.weights.empty()))
-  {
-    throw std::runtime_error(
-      path + ".enabled is true but gravity.coupled basis/weights are missing");
-  }
-  return gcfg;
 }
 
 }  // namespace
@@ -230,8 +154,6 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
   }
 
   const auto usb = require_node(root, "usb", "root");
-  const auto control = require_node(root, "control", "root");
-
   ArmConfig config;
   config.usb_serial = scalar_string(require_node(usb, "serial", "usb"), "usb.serial");
   if(config.usb_serial.empty())
@@ -255,8 +177,11 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
     config.device_index = static_cast<int>(parse_uint32(usb["device_index"], "usb.device_index"));
   }
 
-  config.loop_period = std::chrono::milliseconds(
-    parse_uint32(require_node(control, "loop_period_ms", "control"), "control.loop_period_ms"));
+  if(root["control"])
+  {
+    throw std::runtime_error(
+      "control.loop_period_ms is not supported; pass hz to start_mit_loop/start");
+  }
 
   std::set<std::uint16_t> can_ids;
   std::set<std::uint16_t> mst_ids;
@@ -267,15 +192,15 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
     throw std::runtime_error(
       "root motors: is no longer supported; put motors under left: and right:");
   }
-  if(root["gravity"])
-  {
-    throw std::runtime_error(
-      "root gravity: is no longer supported; put gravity under left: and right:");
-  }
   if(!root["left"] || !root["right"])
   {
     throw std::runtime_error(
       "config must define both left: and right: limbs (dual-arm only)");
+  }
+  if(root["gravity"] || root["left"]["gravity"] || root["right"]["gravity"])
+  {
+    throw std::runtime_error(
+      "gravity configuration is not part of the SDK; provide tau feedforward from the upper layer");
   }
 
   {
@@ -288,11 +213,6 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
     {
       throw std::runtime_error("left.motors must not be empty");
     }
-    if(left["gravity"])
-    {
-      config.left.gravity =
-        parse_gravity(left["gravity"], "left.gravity", config.left.count);
-    }
   }
   {
     const auto right = root["right"];
@@ -303,11 +223,6 @@ ArmConfig load_arm_config(const std::filesystem::path& path)
     if(config.right.count == 0)
     {
       throw std::runtime_error("right.motors must not be empty");
-    }
-    if(right["gravity"])
-    {
-      config.right.gravity =
-        parse_gravity(right["gravity"], "right.gravity", config.right.count);
     }
   }
 

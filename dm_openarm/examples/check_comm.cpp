@@ -2,7 +2,6 @@
 #include "dm_openarm/yaml_loader.hpp"
 
 #include <chrono>
-#include <cmath>
 #include <filesystem>
 #include <iostream>
 #include <thread>
@@ -26,7 +25,8 @@ void print_states(const std::vector<dm_openarm::MotorState>& states)
               << " pos: " << state.position
               << " vel: " << state.velocity
               << " effort: " << state.torque
-              << " time(s): " << state.feedback_interval_s << '\n';
+              << " age(s): " << state.last_rx_age_s
+              << " error: " << static_cast<int>(state.error_code) << '\n';
   }
 }
 
@@ -45,7 +45,7 @@ int main(int argc, char** argv)
               << " device_index=" << config.device_index << '\n';
 
     dm_openarm::DmArm arm(config);
-    arm.connect();
+    arm.enable();
 
     int rx_hits = 0;
     for(int i = 0; i < 200; ++i)
@@ -58,8 +58,7 @@ int main(int argc, char** argv)
       }
       for(const auto& state : states)
       {
-        if(state.feedback_interval_s > 0.0 || std::abs(state.position) > 1e-9 ||
-           std::abs(state.velocity) > 1e-9 || std::abs(state.torque) > 1e-9)
+        if(state.feedback_fresh(0.1))
         {
           ++rx_hits;
           break;

@@ -12,7 +12,8 @@ def main() -> int:
     try:
         arm.enable()
         print(
-            f"{'can_id':>8} {'pos(rad)':>12} {'vel(rad/s)':>12} {'tau(N·m)':>12} {'dt(s)':>12}",
+            f"{'can_id':>8} {'pos(rad)':>12} {'vel(rad/s)':>12} {'tau(N·m)':>12} "
+            f"{'age(s)':>12} {'err':>5}",
             flush=True,
         )
         print("持续读取中，Ctrl+C 退出…", flush=True)
@@ -28,7 +29,8 @@ def main() -> int:
                     f"{s.position:12.4f}"
                     f"{s.velocity:12.4f}"
                     f"{s.torque:12.4f}"
-                    f"{s.feedback_interval_s:12.6f}",
+                    f"{s.last_rx_age_s:12.6f}"
+                    f"{s.error_code:5d}",
                     flush=True,
                 )
             time.sleep(0.05)  # ~20 Hz 打印

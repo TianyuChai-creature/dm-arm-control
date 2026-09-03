@@ -31,6 +31,7 @@ damiao::DM_Motor_Type DmSerialBackend::to_damiao_model(MotorModel model)
 
 void DmSerialBackend::connect()
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   if(control_)
   {
     return;
@@ -52,21 +53,43 @@ void DmSerialBackend::connect()
     config_.canfd,
     config_.brs,
     config_.device_index,
-    /*auto_enable=*/true);
+    /*auto_enable=*/false);
+}
+
+void DmSerialBackend::enable()
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if(!control_)
+  {
+    throw std::runtime_error("DmSerialBackend is not connected");
+  }
+  control_->enable_all();
+}
+
+void DmSerialBackend::disable()
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  if(control_)
+  {
+    control_->disable_all();
+  }
 }
 
 void DmSerialBackend::disconnect()
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   control_.reset();
 }
 
 bool DmSerialBackend::connected() const noexcept
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   return static_cast<bool>(control_);
 }
 
 void DmSerialBackend::send_mit_all(const std::vector<MitCommand>& commands)
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   if(!control_)
   {
     throw std::runtime_error("DmSerialBackend is not connected");
@@ -102,6 +125,7 @@ void DmSerialBackend::send_zero_mit_all()
 
 void DmSerialBackend::set_zero(std::uint16_t can_id, bool persist)
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   if(!control_)
   {
     throw std::runtime_error("DmSerialBackend is not connected");
@@ -135,6 +159,7 @@ void DmSerialBackend::set_zero_all(bool persist)
 
 std::vector<MotorState> DmSerialBackend::states() const
 {
+  std::lock_guard<std::mutex> lock(mutex_);
   if(!control_)
   {
     throw std::runtime_error("DmSerialBackend is not connected");
@@ -144,19 +169,18 @@ std::vector<MotorState> DmSerialBackend::states() const
   result.reserve(config_.motors.size());
   for(const auto& motor_config : config_.motors)
   {
-    const auto motor = control_->getMotor(motor_config.can_id);
-    if(!motor)
-    {
-      throw std::runtime_error("motor is not registered");
-    }
+    const auto feedback = control_->getMotorFeedback(motor_config.can_id);
 
     result.push_back(MotorState{
       motor_config.can_id,
       motor_config.mst_id,
-      motor->Get_Position(),
-      motor->Get_Velocity(),
-      motor->Get_tau(),
-      motor->getTimeInterval()});
+      feedback.position,
+      feedback.velocity,
+      feedback.torque,
+      feedback.feedback_interval_s,
+      feedback.last_rx_age_s,
+      feedback.rx_sequence,
+      feedback.error_code});
   }
 
   return result;

@@ -16,6 +16,7 @@ namespace nb = nanobind;
 NB_MODULE(_core, m)
 {
   m.doc() = "dm_openarm Python bindings";
+  m.attr("DEFAULT_CONTROL_HZ") = dm_openarm::kDefaultControlHz;
 
   nb::enum_<dm_openarm::MotorModel>(m, "MotorModel")
     .value("DM4310", dm_openarm::MotorModel::DM4310)
@@ -46,7 +47,12 @@ NB_MODULE(_core, m)
     .def_ro("position", &dm_openarm::MotorState::position)
     .def_ro("velocity", &dm_openarm::MotorState::velocity)
     .def_ro("torque", &dm_openarm::MotorState::torque)
-    .def_ro("feedback_interval_s", &dm_openarm::MotorState::feedback_interval_s);
+    .def_ro("feedback_interval_s", &dm_openarm::MotorState::feedback_interval_s)
+    .def_ro("last_rx_age_s", &dm_openarm::MotorState::last_rx_age_s)
+    .def_ro("rx_sequence", &dm_openarm::MotorState::rx_sequence)
+    .def_ro("error_code", &dm_openarm::MotorState::error_code)
+    .def("feedback_fresh", &dm_openarm::MotorState::feedback_fresh,
+         nb::arg("max_age_s") = 0.1);
 
   nb::class_<dm_openarm::MotorConfig>(m, "MotorConfig")
     .def(nb::init<>())
@@ -59,8 +65,7 @@ NB_MODULE(_core, m)
   nb::class_<dm_openarm::LimbSpec>(m, "LimbSpec")
     .def(nb::init<>())
     .def_rw("begin", &dm_openarm::LimbSpec::begin)
-    .def_rw("count", &dm_openarm::LimbSpec::count)
-    .def("present", &dm_openarm::LimbSpec::present);
+    .def_rw("count", &dm_openarm::LimbSpec::count);
 
   nb::class_<dm_openarm::ArmConfig>(m, "ArmConfig")
     .def(nb::init<>())
@@ -72,8 +77,7 @@ NB_MODULE(_core, m)
     .def_rw("device_index", &dm_openarm::ArmConfig::device_index)
     .def_rw("motors", &dm_openarm::ArmConfig::motors)
     .def_rw("left", &dm_openarm::ArmConfig::left)
-    .def_rw("right", &dm_openarm::ArmConfig::right)
-    .def("is_dual", &dm_openarm::ArmConfig::is_dual);
+    .def_rw("right", &dm_openarm::ArmConfig::right);
 
   m.def(
     "load_arm_config",
@@ -85,7 +89,9 @@ NB_MODULE(_core, m)
   nb::class_<dm_openarm::DmArm>(m, "DmArm")
     .def(nb::init<dm_openarm::ArmConfig>())
     .def("connect", &dm_openarm::DmArm::connect)
+    .def("enable", &dm_openarm::DmArm::enable)
     .def("disable", &dm_openarm::DmArm::disable)
+    .def("disconnect", &dm_openarm::DmArm::disconnect)
     .def("connected", &dm_openarm::DmArm::connected)
     .def("send_mit_all", &dm_openarm::DmArm::send_mit_all, nb::arg("commands"))
     .def("send_zero_mit_all", &dm_openarm::DmArm::send_zero_mit_all)
@@ -99,9 +105,11 @@ NB_MODULE(_core, m)
 
   nb::class_<dm_openarm::MitLoopController>(m, "MitLoopController")
     .def(nb::init<dm_openarm::DmArm&>(), nb::keep_alive<1, 2>())
-    .def("start", &dm_openarm::MitLoopController::start, nb::arg("hz") = 1000.0)
+    .def("start", &dm_openarm::MitLoopController::start,
+         nb::arg("hz") = dm_openarm::kDefaultControlHz)
     .def("stop", &dm_openarm::MitLoopController::stop)
     .def("running", &dm_openarm::MitLoopController::running)
+    .def("deadline_misses", &dm_openarm::MitLoopController::deadline_misses)
     .def(
       "set_command",
       &dm_openarm::MitLoopController::set_command,
@@ -111,62 +119,5 @@ NB_MODULE(_core, m)
       "set_all_commands",
       &dm_openarm::MitLoopController::set_all_commands,
       nb::arg("commands"))
-    .def("commands", &dm_openarm::MitLoopController::commands)
-    .def(
-      "set_gravity_enabled",
-      &dm_openarm::MitLoopController::set_gravity_enabled,
-      nb::arg("enabled"))
-    .def("gravity_enabled", &dm_openarm::MitLoopController::gravity_enabled)
-    .def(
-      "set_gravity_scale",
-      &dm_openarm::MitLoopController::set_gravity_scale,
-      nb::arg("scale"))
-    .def("gravity_scale", &dm_openarm::MitLoopController::gravity_scale)
-    .def(
-      "set_gravity_use_measured_q",
-      &dm_openarm::MitLoopController::set_gravity_use_measured_q,
-      nb::arg("use_measured"))
-    .def(
-      "gravity_use_measured_q",
-      &dm_openarm::MitLoopController::gravity_use_measured_q)
-    .def(
-      "set_limb_gravity_enabled",
-      &dm_openarm::MitLoopController::set_limb_gravity_enabled,
-      nb::arg("side"),
-      nb::arg("enabled"))
-    .def(
-      "limb_gravity_enabled",
-      &dm_openarm::MitLoopController::limb_gravity_enabled,
-      nb::arg("side"))
-    .def(
-      "set_limb_gravity_scale",
-      &dm_openarm::MitLoopController::set_limb_gravity_scale,
-      nb::arg("side"),
-      nb::arg("scale"))
-    .def(
-      "limb_gravity_scale",
-      &dm_openarm::MitLoopController::limb_gravity_scale,
-      nb::arg("side"))
-    .def(
-      "set_limb_gravity_use_measured_q",
-      &dm_openarm::MitLoopController::set_limb_gravity_use_measured_q,
-      nb::arg("side"),
-      nb::arg("use_measured"))
-    .def(
-      "limb_gravity_use_measured_q",
-      &dm_openarm::MitLoopController::limb_gravity_use_measured_q,
-      nb::arg("side"))
-    .def(
-      "limb_gravity_torques",
-      &dm_openarm::MitLoopController::limb_gravity_torques,
-      nb::arg("side"),
-      nb::arg("q"))
-    .def(
-      "gravity_torques",
-      &dm_openarm::MitLoopController::gravity_torques,
-      nb::arg("q"))
-    .def("left_begin", &dm_openarm::MitLoopController::left_begin)
-    .def("left_count", &dm_openarm::MitLoopController::left_count)
-    .def("right_begin", &dm_openarm::MitLoopController::right_begin)
-    .def("right_count", &dm_openarm::MitLoopController::right_count);
+    .def("commands", &dm_openarm::MitLoopController::commands);
 }

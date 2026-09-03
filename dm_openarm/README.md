@@ -29,11 +29,16 @@ Python API。底层复用达妙 USB-CANFD SDK，当前版本只封装 MIT 模式
 
 | CAN ID | MST ID | 型号 | 位置 | YAML 名称 |
 | --- | --- | --- | --- | --- |
-| `0x01` | `0x11` | DM4310 | 末端 | `end_effector` |
-| `0x02` | `0x12` | DM4310 | 末端上数第二 | `wrist_2` |
-| `0x03` | `0x13` | DM4310 | 末端上数第三 | `wrist_3` |
-| `0x04` | `0x14` | DM8009 | 末端上数第四 | `elbow` |
-| `0x05` | `0x15` | DM8009 | 肩膀位置 | `shoulder` |
+| `0x04` | `0x14` | DM4310 | 左末端 | `L_end_effector` |
+| `0x02` | `0x12` | DM4310 | 左腕二 | `L_wrist_2` |
+| `0x03` | `0x13` | DM4310 | 左腕三 | `L_wrist_3` |
+| `0x01` | `0x11` | DM8009 | 左肘 | `L_elbow` |
+| `0x00` | `0x10` | DM8009 | 左肩 | `L_shoulder` |
+| `0x09` | `0x19` | DM4310 | 右末端 | `R_end_effector` |
+| `0x08` | `0x18` | DM4310 | 右腕二 | `R_wrist_2` |
+| `0x07` | `0x17` | DM4310 | 右腕三 | `R_wrist_3` |
+| `0x06` | `0x16` | DM8009 | 右肘 | `R_elbow` |
+| `0x05` | `0x15` | DM8009 | 右肩 | `R_shoulder` |
 
 说明：当前 SDK 中没有单独的 `DM8009P` 枚举，本库统一写作 `DM8009`。
 
@@ -47,6 +52,45 @@ config/arm.yaml
 
 如果 USB-CANFD 适配器 SN、波特率或电机 ID 不同，先修改这个 YAML。修改
 YAML 后不需要重新编译；修改 C++ 或 Python 包代码后才需要重新安装/编译。
+
+## SDK API
+
+### Python
+
+| 对象 | API | 作用 |
+| --- | --- | --- |
+| `Arm` | `from_yaml(path)` | 加载配置，不连接设备 |
+| `Arm` | `enable()` / `disable()` | 连接并使能 / 停止并失能 |
+| `Arm` | `states()` | 读取全总线状态 |
+| `Arm` | `mit(...)` | 按 CAN ID 写单轴或批量 MIT 命令 |
+| `Arm` | `start_mit_loop(hz=1000, home=False)` | 默认以最高频率 1000 Hz 启动控制环 |
+| `Arm` | `stop_mit_loop()` | 停止控制环并发送零 MIT |
+| `Arm` | `set_zero(...)` / `set_zero_all(...)` | 设置电机零位 |
+| `Arm` | `deadline_misses` | 读取控制环超期次数 |
+| `Arm` | `left` / `right` | 获取左右侧 `Limb` |
+| `Limb` | `can_ids` / `names` / `states()` | 读取本侧元数据和状态 |
+| `Limb` | `mit(...)` | 本侧 MIT 命令 |
+| `Limb` | `commands()` | 读取本侧当前命令 |
+| `Limb` | `set_zero(...)` / `set_zero_all(...)` | 设置本侧零位 |
+
+基础类型：`MitCommand(kp, kd, q, dq, tau)`、`MotorConfig`、`MotorState`、
+`ArmConfig`、`MotorModel` 和 `ControlMode`。`MotorState.feedback_fresh(0.1)`
+可判断最近 0.1 秒内是否收到反馈。
+
+### C++
+
+| 类型/函数 | API |
+| --- | --- |
+| 配置 | `load_arm_config(path)` |
+| `DmArm` | `connect()`、`enable()`、`disable()`、`disconnect()`、`connected()` |
+| `DmArm` | `send_mit_all()`、`send_zero_mit_all()`、`states()` |
+| `DmArm` | `set_zero()`、`set_zero_all()`、`config()` |
+| `MitLoopController` | `start()`、`stop()`、`running()` |
+| `MitLoopController` | `set_command()`、`set_all_commands()`、`commands()` |
+| `MitLoopController` | `deadline_misses()` |
+
+SDK 不包含轨迹规划、动力学模型或重力辨识；上层应用计算前馈力矩后写入
+`MitCommand.tau`。
 
 ## 单位约定
 
@@ -63,6 +107,9 @@ Python 和 C++ API 中的主要物理量单位如下：
 | `velocity` | 反馈速度 | rad/s |
 | `torque` | 反馈力矩 | N·m |
 | `feedback_interval_s` | 反馈间隔 | s |
+| `last_rx_age_s` | 距离最近反馈的时间 | s |
+| `rx_sequence` | 已接收反馈帧计数 | 帧 |
+| `error_code` | 电机反馈错误码 | - |
 | `hz` | 控制频率 | Hz |
 | `timeout` / `zero_timeout` | 等待时间 | s |
 
@@ -123,7 +170,7 @@ arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
 
 try:
     arm.enable()
-    arm.start_mit_loop(hz=1000.0)
+    arm.start_mit_loop(hz=1000.0, home=False)
 
     arm.mit(0x01, kp=12.0, kd=0.6, q=0.4, dq=0.0, tau=0.0)
 
@@ -179,6 +226,9 @@ for state in arm.states():
         state.velocity,
         state.torque,
         state.feedback_interval_s,
+        state.last_rx_age_s,
+        state.rx_sequence,
+        state.error_code,
     )
 ```
 
@@ -190,6 +240,11 @@ for state in arm.states():
 | `velocity` | rad/s |
 | `torque` | N·m |
 | `feedback_interval_s` | s |
+| `last_rx_age_s` | s |
+| `rx_sequence` | 帧 |
+| `error_code` | - |
+
+`state.feedback_fresh(0.1)` 可用于判断最近 0.1 秒内是否收到反馈。
 
 ### 设置零位
 
@@ -218,7 +273,7 @@ arm.disable()
 重要区别：
 
 - `set_zero(...)` 是“把当前位置写成新的零位”。
-- `start_mit_loop(...)` 启动后执行的是“运动到已保存零位 `q=0`”，不是重新设置零位。
+- `start_mit_loop(..., home=True)` 才会运动到已保存零位 `q=0`，不是重新设置零位。
 
 默认建议使用 `persist=True`，这样零位会在后续 Python/C++ 程序和断电重启后保持。
 但不要频繁反复写 flash；只在机械零位确认正确后执行。
@@ -226,16 +281,15 @@ arm.disable()
 ### 启动 MIT 后台循环
 
 ```python
-arm.start_mit_loop(hz=1000.0, zero_timeout=5.0)
+arm.start_mit_loop(hz=1000.0, home=False)
 ```
 
 行为：
 
 - 启动 C++ 后台 MIT 控制线程。
 - 控制线程按 `hz` 频率发送当前命令，默认 `1000 Hz`。
-- 启动后会先给所有电机发送 `q=0.0` 的 MIT 命令，让电机回到已保存零位。
-- 回零等待容差当前为 `0.05 rad`。
-- `zero_timeout` 单位是秒，默认 `5.0 s`。
+- 默认不回零；传入 `home=True` 才会命令所有电机运动到已保存零位。
+- 显式回零时等待容差为 `0.05 rad`，`zero_timeout` 默认 `5.0 s`。
 
 注意：这个回零动作可能导致真实机械臂运动。运行前必须确认机械臂周围没有干涉。
 
@@ -274,16 +328,16 @@ arm.mit(
 from dm_openarm import MitCommand
 
 arm.mit({
-    0x01: MitCommand(kp=12.0, kd=0.6, q=0.0, dq=0.0, tau=0.0),
+    0x04: MitCommand(kp=12.0, kd=0.6, q=0.0, dq=0.0, tau=0.0),
     0x02: MitCommand(kp=12.0, kd=0.6, q=0.5, dq=0.0, tau=0.2),
     0x03: MitCommand(kp=12.0, kd=0.6, q=1.0, dq=0.0, tau=0.5),
-    0x04: MitCommand(kp=10.0, kd=0.8, q=-0.8, dq=0.0, tau=0.8),
-    0x05: MitCommand(kp=10.0, kd=0.8, q=-0.8, dq=0.0, tau=1.0),
+    0x01: MitCommand(kp=10.0, kd=0.8, q=-0.8, dq=0.0, tau=0.8),
+    0x00: MitCommand(kp=10.0, kd=0.8, q=-0.8, dq=0.0, tau=1.0),
 })
 ```
 
-多电机 dict 中没有出现的电机，会保持之前已经设置的命令。通常在
-`start_mit_loop()` 后，未指定电机会保持在启动时设置的 `q=0.0` 命令。
+多电机 dict 中没有出现的电机，会保持之前已经设置的命令；首次启动时默认是全零
+增益、全零力矩。
 
 `MitCommand` 字段单位：
 
@@ -425,10 +479,10 @@ Python 的 `arm.mit(...)` 不自动使用 FIFO 示例里的单步限制和斜坡
 
 int main()
 {
-  auto config = dm_openarm::load_arm_config("../config/arm.yaml");
-  dm_openarm::DmArm arm(config);
+auto config = dm_openarm::load_arm_config("../config/arm.yaml");
+dm_openarm::DmArm arm(config);
 
-  arm.connect();
+arm.enable();
 
   dm_openarm::MitLoopController loop(arm);
   loop.start(1000.0);
@@ -438,8 +492,9 @@ int main()
 
   std::this_thread::sleep_for(std::chrono::seconds(2));
 
-  loop.stop();
-  arm.disable();
+loop.stop();
+arm.disable();
+arm.disconnect();
   return 0;
 }
 ```
@@ -454,7 +509,7 @@ target_link_libraries(my_app PRIVATE dm_openarm)
 ## 安全注意事项
 
 - `q` 是绝对位置，单位 rad，不是相对移动量。
-- `start_mit_loop()` 会让所有电机尝试回到已保存零位 `q=0.0`。
+- `start_mit_loop()` 默认不回零；只有 `home=True` 会运动到已保存零位。
 - `set_zero()` 会改写电机零位，`persist=True` 会写 flash，不要频繁调用。
 - `arm.mit(...)` 会立即更新目标命令；Python API 当前没有自动斜坡限制。
 - 初次测试建议让单个电机、小角度、低增益运行。

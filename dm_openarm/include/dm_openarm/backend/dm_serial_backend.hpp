@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 namespace dm_openarm::backend {
@@ -20,6 +21,8 @@ public:
   DmSerialBackend& operator=(const DmSerialBackend&) = delete;
 
   void connect();
+  void enable();
+  void disable();
   void disconnect();
   bool connected() const noexcept;
 
@@ -34,6 +37,7 @@ private:
 
   ArmConfig config_;
   std::vector<damiao::DmActData> init_data_;
+  mutable std::mutex mutex_;
   std::shared_ptr<damiao::Motor_Control> control_;
 };
 

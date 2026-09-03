@@ -1,10 +1,13 @@
 #include "dm_openarm/mit_control_command.hpp"
+#include "dm_openarm/types.hpp"
+#include "protocol/damiao.h"
 
 #include <cassert>
 #include <cmath>
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <stdexcept>
 #include <string>
 
@@ -98,6 +101,32 @@ void test_unknown_command_rejected()
     "unknown command");
 }
 
+void test_mit_encoding_rejects_invalid_values()
+{
+  assert(damiao::encode_mit_field(0.0f, 0.0f, 500.0f, 12) == 0);
+  assert(damiao::encode_mit_field(500.0f, 0.0f, 500.0f, 12) == 4095);
+  expect_throw_contains(
+    []() { damiao::encode_mit_field(501.0f, 0.0f, 500.0f, 12); },
+    "outside motor limits");
+  expect_throw_contains(
+    []() {
+      damiao::encode_mit_field(
+        std::numeric_limits<float>::quiet_NaN(), 0.0f, 500.0f, 12);
+    },
+    "invalid MIT field");
+}
+
+void test_feedback_freshness()
+{
+  dm_openarm::MotorState state;
+  assert(!state.feedback_fresh());
+  state.rx_sequence = 1;
+  state.last_rx_age_s = 0.05;
+  assert(state.feedback_fresh(0.1));
+  state.last_rx_age_s = 0.2;
+  assert(!state.feedback_fresh(0.1));
+}
+
 }  // namespace
 
 int main()
@@ -111,6 +140,8 @@ int main()
   test_home_one();
   test_stop();
   test_unknown_command_rejected();
+  test_mit_encoding_rejects_invalid_values();
+  test_feedback_freshness();
 
   return 0;
 }

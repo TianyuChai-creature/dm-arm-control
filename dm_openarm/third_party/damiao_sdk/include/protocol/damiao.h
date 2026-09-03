@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -115,6 +116,8 @@ typedef struct
 
 extern Limit_param limit_param[Num_Of_Motor];
 
+uint16_t encode_mit_field(float value, float min, float max, uint8_t bits);
+
 struct DmActData
 {
   DM_Motor_Type motorType;
@@ -122,6 +125,17 @@ struct DmActData
   uint16_t can_id;
   uint16_t mst_id;
   uint8_t channel{0};
+};
+
+struct MotorFeedback
+{
+  float position{0.0f};
+  float velocity{0.0f};
+  float torque{0.0f};
+  double feedback_interval_s{0.0};
+  double last_rx_age_s{std::numeric_limits<double>::infinity()};
+  uint64_t rx_sequence{0};
+  uint8_t error_code{0};
 };
 
 class Motor
@@ -150,6 +164,10 @@ private:
   std::unordered_map<uint32_t, ValueType> param_map;
   std::chrono::steady_clock::time_point last_time_;
   double delta_time_{0.0};
+  uint64_t rx_sequence_{0};
+  uint8_t error_code_{0};
+
+  friend class Motor_Control;
 
 public:
   Motor(DM_Motor_Type motor_type, Control_Mode ctrl_mode, uint16_t can_id, uint16_t master_id,
@@ -158,7 +176,7 @@ public:
   void updateTimeInterval();
   double getTimeInterval();
 
-  void receive_data(float q, float dq, float tau);
+  void receive_data(float q, float dq, float tau, uint8_t error_code);
 
   DM_Motor_Type GetMotorType() const { return this->Motor_Type; }
   Control_Mode GetMotorMode() const { return this->mode; }
@@ -213,6 +231,7 @@ public:
   bool switchControlMode(Motor& DM_Motor, Control_Mode_Code mode);
   bool change_motor_param(Motor& DM_Motor, uint8_t RID, float data);
   void changeMotorLimit(Motor& DM_Motor, float P_MAX, float Q_MAX, float T_MAX);
+  MotorFeedback getMotorFeedback(uint16_t id) const;
 
   std::shared_ptr<Motor> getMotor(uint16_t id) const
   {

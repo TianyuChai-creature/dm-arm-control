@@ -5,7 +5,6 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .eggs/
-dist/
 build/
 *.so
 !dm_openarm/third_party/damiao_sdk/lib/libdm_device.so

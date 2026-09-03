@@ -23,13 +23,10 @@ dm_openarm/
 │   └── dm_openarm/
 │       ├── dm_arm.hpp          # 机械臂主接口
 │       ├── mit_loop_controller.hpp  # MIT 控制循环控制器
-│       ├── motor.hpp           # 单电机抽象
-│       ├── motor_group.hpp     # 电机组管理
 │       ├── types.hpp           # 公共类型定义
 │       ├── config.hpp          # 配置数据结构
 │       ├── yaml_loader.hpp     # YAML 配置加载器
 │       └── backend/
-│           ├── motor_backend.hpp       # 后端抽象接口
 │           └── dm_serial_backend.hpp   # 达妙串口后端
 ├── python/
 │   └── dm_openarm/
@@ -41,8 +38,6 @@ dm_openarm/
 ├── src/
 │   ├── dm_arm.cpp
 │   ├── mit_loop_controller.cpp # MIT 控制循环实现
-│   ├── motor.cpp
-│   ├── motor_group.cpp
 │   ├── python_bindings.cpp     # nanobind Python 绑定
 │   ├── yaml_loader.cpp
 │   └── backend/

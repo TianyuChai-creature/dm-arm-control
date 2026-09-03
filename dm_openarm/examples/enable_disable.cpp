@@ -27,7 +27,7 @@ int main(int argc, char** argv)
     dm_openarm::DmArm arm(config);
 
     std::cout << "Connecting and enabling motors\n";
-    arm.connect();
+    arm.enable();
     arm.send_zero_mit_all();
 
     std::this_thread::sleep_for(std::chrono::seconds(1));

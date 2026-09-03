@@ -18,7 +18,9 @@ public:
   DmArm& operator=(const DmArm&) = delete;
 
   void connect();
+  void enable();
   void disable();
+  void disconnect();
   bool connected() const noexcept;
 
   void send_mit_all(const std::vector<MitCommand>& commands);

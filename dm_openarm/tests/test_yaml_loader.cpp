@@ -1,7 +1,6 @@
 #include "dm_openarm/yaml_loader.hpp"
 
 #include <cassert>
-#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -14,23 +13,7 @@ namespace {
 
 std::filesystem::path project_root()
 {
-  auto cwd = std::filesystem::current_path();
-  for(auto path = cwd; !path.empty(); path = path.parent_path())
-  {
-    if(std::filesystem::exists(path / "config" / "arm.yaml"))
-    {
-      return path;
-    }
-    if(std::filesystem::exists(path / "dm_openarm" / "config" / "arm.yaml"))
-    {
-      return path / "dm_openarm";
-    }
-    if(path == path.root_path())
-    {
-      break;
-    }
-  }
-  throw std::runtime_error("could not locate dm_openarm project root");
+  return DM_OPENARM_SOURCE_DIR;
 }
 
 std::filesystem::path write_case(const std::string& name, const std::string& yaml)
@@ -71,16 +54,13 @@ usb:
   nominal_baud: 1000000
   data_baud: 1000000
 
-control:
-  loop_period_ms: 1
-
 left:
   motors:
     - name: L_end_effector
       model: DM4310
       mode: MIT
-      can_id: 0x01
-      mst_id: 0x11
+      can_id: 0x04
+      mst_id: 0x14
     - name: L_wrist_2
       model: DM4310
       mode: MIT
@@ -94,40 +74,40 @@ left:
     - name: L_elbow
       model: DM8009
       mode: MIT
-      can_id: 0x04
-      mst_id: 0x14
+      can_id: 0x01
+      mst_id: 0x11
     - name: L_shoulder
       model: DM8009
       mode: MIT
-      can_id: 0x05
-      mst_id: 0x15
+      can_id: 0x00
+      mst_id: 0x10
 right:
   motors:
     - name: R_end_effector
       model: DM4310
       mode: MIT
-      can_id: 0x21
-      mst_id: 0x31
+      can_id: 0x09
+      mst_id: 0x19
     - name: R_wrist_2
       model: DM4310
       mode: MIT
-      can_id: 0x22
-      mst_id: 0x32
+      can_id: 0x08
+      mst_id: 0x18
     - name: R_wrist_3
       model: DM4310
       mode: MIT
-      can_id: 0x23
-      mst_id: 0x33
+      can_id: 0x07
+      mst_id: 0x17
     - name: R_elbow
       model: DM8009
       mode: MIT
-      can_id: 0x24
-      mst_id: 0x34
+      can_id: 0x06
+      mst_id: 0x16
     - name: R_shoulder
       model: DM8009
       mode: MIT
-      can_id: 0x25
-      mst_id: 0x35
+      can_id: 0x05
+      mst_id: 0x15
 )yaml";
 }
 
@@ -141,28 +121,26 @@ void test_default_config_loads()
   assert(config.canfd == false);
   assert(config.brs == false);
   assert(config.device_index == 0);
-  assert(config.loop_period == std::chrono::milliseconds(1));
   assert(config.motors.size() == 10);
-  assert(config.is_dual());
-  assert(config.left.present() && config.left.begin == 0 && config.left.count == 5);
-  assert(config.right.present() && config.right.begin == 5 && config.right.count == 5);
-  assert(config.left.gravity.enabled == true);
-  assert(std::abs(config.left.gravity.scale - 0.9) < 1e-9);
-  assert(config.left.gravity.coupled.basis.size() == 13);
-  assert(config.left.gravity.coupled.weights.size() == 5);
-  assert(config.right.gravity.enabled == false);
-
-  assert(config.motors[0].can_id == 0x01);
+  assert(config.left.begin == 0 && config.left.count == 5);
+  assert(config.right.begin == 5 && config.right.count == 5);
+  const std::uint16_t expected_can[] = {0x04, 0x02, 0x03, 0x01, 0x00,
+                                        0x09, 0x08, 0x07, 0x06, 0x05};
+  const std::uint16_t expected_mst[] = {0x14, 0x12, 0x13, 0x11, 0x10,
+                                        0x19, 0x18, 0x17, 0x16, 0x15};
+  for(std::size_t i = 0; i < config.motors.size(); ++i)
+  {
+    assert(config.motors[i].can_id == expected_can[i]);
+    assert(config.motors[i].mst_id == expected_mst[i]);
+  }
   assert(config.motors[3].model == dm_openarm::MotorModel::DM8009);
-  assert(config.motors[5].can_id == 0x21);
-  assert(config.motors[9].can_id == 0x25);
 }
 
 void test_hex_ids_are_parsed()
 {
   const auto config = dm_openarm::load_arm_config(write_case("hex_ids.yaml", base_yaml()));
-  assert(config.motors[0].can_id == static_cast<std::uint16_t>(0x01));
-  assert(config.motors[5].can_id == static_cast<std::uint16_t>(0x21));
+  assert(config.motors[0].can_id == static_cast<std::uint16_t>(0x04));
+  assert(config.motors[5].can_id == static_cast<std::uint16_t>(0x09));
 }
 
 void test_duplicate_can_id_fails()
@@ -181,6 +159,15 @@ void test_duplicate_mst_id_fails()
   expect_throw_contains(
     [&]() { dm_openarm::load_arm_config(write_case("duplicate_mst.yaml", yaml)); },
     "duplicate MST ID");
+}
+
+void test_cross_id_collision_fails()
+{
+  std::string yaml = base_yaml();
+  yaml.replace(yaml.find("can_id: 0x02"), std::string("can_id: 0x02").size(), "can_id: 0x14");
+  expect_throw_contains(
+    [&]() { dm_openarm::load_arm_config(write_case("cross_id.yaml", yaml)); },
+    "collides with an MST ID");
 }
 
 void test_empty_usb_serial_fails()
@@ -220,8 +207,6 @@ usb:
   serial: "X"
   nominal_baud: 1000000
   data_baud: 1000000
-control:
-  loop_period_ms: 1
 motors:
   - name: a
     model: DM4310
@@ -242,6 +227,7 @@ int main()
   test_hex_ids_are_parsed();
   test_duplicate_can_id_fails();
   test_duplicate_mst_id_fails();
+  test_cross_id_collision_fails();
   test_empty_usb_serial_fails();
   test_non_mit_mode_fails();
   test_unknown_model_fails_with_dm8009p_hint();

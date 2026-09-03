@@ -21,7 +21,6 @@ dm_openarm::ArmConfig test_config()
     false,
     false,
     0,
-    std::chrono::milliseconds(1),
     {
       dm_openarm::MotorConfig{"joint_1", dm_openarm::MotorModel::DM4310, dm_openarm::ControlMode::MIT, 0x01, 0x11},
       dm_openarm::MotorConfig{"joint_2", dm_openarm::MotorModel::DM8009, dm_openarm::ControlMode::MIT, 0x02, 0x12},
@@ -59,6 +58,7 @@ void test_initial_commands_are_zero()
   dm_openarm::MitLoopController loop(arm);
 
   assert(!loop.running());
+  assert(loop.deadline_misses() == 0);
   const auto commands = loop.commands();
   assert(commands.size() == 2);
   assert_close(commands[0].kp, 0.0);

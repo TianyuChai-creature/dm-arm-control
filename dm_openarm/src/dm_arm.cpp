@@ -12,7 +12,20 @@ DmArm::DmArm(ArmConfig config)
 
 DmArm::~DmArm()
 {
-  disable();
+  try
+  {
+    disable();
+  }
+  catch(...)
+  {
+  }
+  try
+  {
+    disconnect();
+  }
+  catch(...)
+  {
+  }
 }
 
 void DmArm::connect()
@@ -20,7 +33,34 @@ void DmArm::connect()
   backend_.connect();
 }
 
+void DmArm::enable()
+{
+  connect();
+  try
+  {
+    backend_.enable();
+  }
+  catch(...)
+  {
+    backend_.disconnect();
+    throw;
+  }
+}
+
 void DmArm::disable()
+{
+  try
+  {
+    backend_.disable();
+  }
+  catch(...)
+  {
+    backend_.disconnect();
+    throw;
+  }
+}
+
+void DmArm::disconnect()
 {
   backend_.disconnect();
 }

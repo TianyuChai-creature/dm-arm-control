@@ -173,9 +173,9 @@ int main(int argc, char** argv)
   {
     const auto config = dm_openarm::load_arm_config(std::filesystem::path(argv[1]));
     dm_openarm::DmArm arm(config);
-    arm.connect();
+    arm.enable();
     arm.send_zero_mit_all();
-    std::this_thread::sleep_for(config.loop_period);
+    std::this_thread::sleep_for(std::chrono::duration<double>(1.0 / dm_openarm::kDefaultControlHz));
 
     const auto initial_states = arm.states();
     std::vector<double> home_targets;
@@ -257,7 +257,7 @@ int main(int argc, char** argv)
 
       const double step =
         kMaxTargetVelocityRadPerSec *
-        std::chrono::duration<double>(config.loop_period).count();
+        1.0 / dm_openarm::kDefaultControlHz;
       std::vector<dm_openarm::MitCommand> commands;
       commands.reserve(config.motors.size());
       for(std::size_t i = 0; i < config.motors.size(); ++i)
@@ -268,7 +268,8 @@ int main(int argc, char** argv)
       arm.send_mit_all(commands);
 
       const auto sleep_till =
-        current_time + std::chrono::duration_cast<clock::duration>(config.loop_period);
+        current_time + std::chrono::duration_cast<clock::duration>(
+                          std::chrono::duration<double>(1.0 / dm_openarm::kDefaultControlHz));
       std::this_thread::sleep_until(sleep_till);
     }
 

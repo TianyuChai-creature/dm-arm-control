@@ -1,5 +1,7 @@
 #include "protocol/damiao.h"
 
+#include <cmath>
+#include <limits>
 #include <stdexcept>
 #include <thread>
 #include <unistd.h>
@@ -73,6 +75,21 @@ Limit_param limit_param[Num_Of_Motor] = {
   {12.5f, 45, 10}       // DMG6220
 };
 
+uint16_t encode_mit_field(float value, float min, float max, uint8_t bits)
+{
+  if(!std::isfinite(value) || !std::isfinite(min) || !std::isfinite(max) || min >= max ||
+     bits == 0 || bits > 16)
+  {
+    throw std::invalid_argument("invalid MIT field value or range");
+  }
+  if(value < min || value > max)
+  {
+    throw std::out_of_range("MIT field value is outside motor limits");
+  }
+  const uint32_t encoded_max = (uint32_t{1} << bits) - 1;
+  return static_cast<uint16_t>((value - min) / (max - min) * encoded_max);
+}
+
 Motor::Motor(DM_Motor_Type motor_type, Control_Mode ctrl_mode, uint16_t can_id, uint16_t master_id,
              uint8_t channel)
   : Can_id(can_id)
@@ -98,11 +115,13 @@ double Motor::getTimeInterval()
   return delta_time_;
 }
 
-void Motor::receive_data(float q, float dq, float tau)
+void Motor::receive_data(float q, float dq, float tau, uint8_t error_code)
 {
   this->state_q = q;
   this->state_dq = dq;
   this->state_tau = tau;
+  this->error_code_ = error_code;
+  ++this->rx_sequence_;
 }
 
 void Motor::set_param(int key, float value)
@@ -319,6 +338,29 @@ void Motor_Control::addMotor(std::shared_ptr<Motor> DM_Motor)
   motors.insert({DM_Motor->GetMasterId(), DM_Motor});
 }
 
+MotorFeedback Motor_Control::getMotorFeedback(uint16_t id) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto it = motors.find(id);
+  if(it == motors.end() || it->second == nullptr)
+  {
+    throw std::runtime_error("motor is not registered");
+  }
+
+  const auto& motor = *it->second;
+  const double age = motor.rx_sequence_ == 0
+    ? std::numeric_limits<double>::infinity()
+    : std::chrono::duration<double>(std::chrono::steady_clock::now() - motor.last_time_).count();
+  return MotorFeedback{
+    motor.state_q,
+    motor.state_dq,
+    motor.state_tau,
+    motor.delta_time_,
+    age,
+    motor.rx_sequence_,
+    motor.error_code_};
+}
+
 std::vector<std::shared_ptr<Motor>> Motor_Control::unique_motors() const
 {
   std::vector<std::shared_ptr<Motor>> out;
@@ -432,27 +474,21 @@ void Motor_Control::set_zero_position(Motor& DM_Motor)
 
 void Motor_Control::control_mit(Motor& DM_Motor, float kp, float kd, float q, float dq, float tau)
 {
-  static auto float_to_uint = [](float x, float xmin, float xmax, uint8_t bits) -> uint16_t {
-    float span = xmax - xmin;
-    float data_norm = (x - xmin) / span;
-    return static_cast<uint16_t>(data_norm * ((1 << bits) - 1));
-  };
-
   const uint16_t id = DM_Motor.GetCanId();
   if(motors.find(id) == motors.end())
   {
     throw std::runtime_error("control_mit: motor not registered");
   }
   auto& m = motors[id];
-  const uint16_t kp_uint = float_to_uint(kp, 0, 500, 12);
-  const uint16_t kd_uint = float_to_uint(kd, 0, 5, 12);
+  const uint16_t kp_uint = encode_mit_field(kp, 0, 500, 12);
+  const uint16_t kd_uint = encode_mit_field(kd, 0, 5, 12);
   const Limit_param limit_param_cmd = m->get_limit_param();
   const uint16_t q_uint =
-    float_to_uint(q, -limit_param_cmd.Q_MAX, limit_param_cmd.Q_MAX, 16);
+    encode_mit_field(q, -limit_param_cmd.Q_MAX, limit_param_cmd.Q_MAX, 16);
   const uint16_t dq_uint =
-    float_to_uint(dq, -limit_param_cmd.DQ_MAX, limit_param_cmd.DQ_MAX, 12);
+    encode_mit_field(dq, -limit_param_cmd.DQ_MAX, limit_param_cmd.DQ_MAX, 12);
   const uint16_t tau_uint =
-    float_to_uint(tau, -limit_param_cmd.TAU_MAX, limit_param_cmd.TAU_MAX, 12);
+    encode_mit_field(tau, -limit_param_cmd.TAU_MAX, limit_param_cmd.TAU_MAX, 12);
 
   const uint16_t can_id = static_cast<uint16_t>(id + MIT_MODE);
   uint8_t data[8];
@@ -464,7 +500,10 @@ void Motor_Control::control_mit(Motor& DM_Motor, float kp, float kd, float q, fl
   data[5] = static_cast<uint8_t>(kd_uint >> 4);
   data[6] = static_cast<uint8_t>(((kd_uint & 0xf) << 4) | ((tau_uint >> 8) & 0xf));
   data[7] = tau_uint & 0xff;
-  send_can(DM_Motor.GetChannel(), can_id, data, 8);
+  if(!send_can(DM_Motor.GetChannel(), can_id, data, 8))
+  {
+    throw std::runtime_error("control_mit: CAN send failed");
+  }
 }
 
 void Motor_Control::control_pos_vel(Motor& DM_Motor, float pos, float vel)
@@ -611,7 +650,8 @@ void Motor_Control::on_rx_frame(const usb_rx_frame& frame)
     uint_to_float(dq_uint, -limit_param_receive.DQ_MAX, limit_param_receive.DQ_MAX, 12);
   const float receive_tau =
     uint_to_float(tau_uint, -limit_param_receive.TAU_MAX, limit_param_receive.TAU_MAX, 12);
-  m->receive_data(receive_q, receive_dq, receive_tau);
+  const uint8_t error_code = static_cast<uint8_t>((frame.payload[0] >> 4) & 0x0f);
+  m->receive_data(receive_q, receive_dq, receive_tau, error_code);
   m->updateTimeInterval();
 }
 
