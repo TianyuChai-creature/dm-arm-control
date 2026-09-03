@@ -1,6 +1,6 @@
 # Station dual-arm config (only supported layout).
-# left:  0x01–0x05 / mst 0x11–0x15 (distal wrist → shoulder)
-# right: 0x21–0x25 / mst 0x31–0x35 (same order)
+# physical order: left shoulder → end effector (0x00–0x04),
+# right shoulder → end effector (0x05–0x09); motors list order is unchanged.
 # classic CAN 1M. No root motors:/gravity: — use left:/right: only.
 usb:
   serial: "52A871B1AA5EF4E239371A5083463F26"
@@ -43,8 +43,8 @@ left:
     - name: L_end_effector
       model: DM4310
       mode: MIT
-      can_id: 0x01
-      mst_id: 0x11
+      can_id: 0x04
+      mst_id: 0x14
     - name: L_wrist_2
       model: DM4310
       mode: MIT
@@ -58,13 +58,13 @@ left:
     - name: L_elbow
       model: DM8009
       mode: MIT
-      can_id: 0x04
-      mst_id: 0x14
+      can_id: 0x01
+      mst_id: 0x11
     - name: L_shoulder
       model: DM8009
       mode: MIT
-      can_id: 0x05
-      mst_id: 0x15
+      can_id: 0x00
+      mst_id: 0x10
 
 right:
   # Coupled gravity (21 poses, 2026-07-21). Wrist ~0; elbow/shoulder main load.
@@ -97,25 +97,25 @@ right:
     - name: R_end_effector
       model: DM4310
       mode: MIT
-      can_id: 0x21
-      mst_id: 0x31
+      can_id: 0x09
+      mst_id: 0x19
     - name: R_wrist_2
       model: DM4310
       mode: MIT
-      can_id: 0x22
-      mst_id: 0x32
+      can_id: 0x08
+      mst_id: 0x18
     - name: R_wrist_3
       model: DM4310
       mode: MIT
-      can_id: 0x23
-      mst_id: 0x33
+      can_id: 0x07
+      mst_id: 0x17
     - name: R_elbow
       model: DM8009
       mode: MIT
-      can_id: 0x24
-      mst_id: 0x34
+      can_id: 0x06
+      mst_id: 0x16
     - name: R_shoulder
       model: DM8009
       mode: MIT
-      can_id: 0x25
-      mst_id: 0x35
+      can_id: 0x05
+      mst_id: 0x15
