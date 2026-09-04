@@ -7,7 +7,7 @@
 安装当前目录下的 wheel：
 
 ```bash
-python -m pip install dm_openarm-0.1.0-*.whl
+python -m pip install dm_openarm-0.1.2-*.whl
 ```
 
 当前 SDK 默认控制频率为 **1000 Hz**，即当前支持的最高默认频率；控制频率不再从
@@ -80,7 +80,7 @@ finally:
 
 ### `Arm`
 
-- `Arm.from_yaml(path)`：加载配置，不连接设备。
+- `Arm.from_yaml(path, side=None)`：加载配置，不连接设备；指定 `left`/`right` 时仅控制该侧。
 - `enable()` / `disable()`：连接并使能 / 停止控制循环、失能并断开。
 - `states()`：读取全总线反馈。
 - `mit(can_id, kp, kd, q, dq, tau)`：更新单轴 MIT 命令。

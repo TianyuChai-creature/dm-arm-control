@@ -325,6 +325,12 @@ void Motor_Control::recv_callback_thunk(dmcan_device_handle* handle, usb_rx_fram
     {
       owner = it->second;
     }
+    else if(g_owners.size() == 1)
+    {
+      // libdm_device may return a callback handle alias rather than the pointer
+      // obtained from dmcan_device_get. A single open controller is unambiguous.
+      owner = g_owners.begin()->second;
+    }
   }
   if(owner != nullptr)
   {
@@ -650,7 +656,8 @@ void Motor_Control::on_rx_frame(const usb_rx_frame& frame)
     uint_to_float(dq_uint, -limit_param_receive.DQ_MAX, limit_param_receive.DQ_MAX, 12);
   const float receive_tau =
     uint_to_float(tau_uint, -limit_param_receive.TAU_MAX, limit_param_receive.TAU_MAX, 12);
-  const uint8_t error_code = static_cast<uint8_t>((frame.payload[0] >> 4) & 0x0f);
+  const uint8_t state_code = static_cast<uint8_t>((frame.payload[0] >> 4) & 0x0f);
+  const uint8_t error_code = state_code >= 8 ? state_code : 0;
   m->receive_data(receive_q, receive_dq, receive_tau, error_code);
   m->updateTimeInterval();
 }

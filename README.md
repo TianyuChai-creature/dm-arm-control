@@ -78,7 +78,7 @@ C++ MitLoopController @ 1 kHz
 
 | 方法 | 作用 |
 |------|------|
-| `Arm.from_yaml(path)` | 加载配置，不连设备 |
+| `Arm.from_yaml(path, side=None)` | 加载双臂或指定单臂配置，不连设备 |
 | `enable()` / `disable()` | 连接使能 / 停 loop + 失能 |
 | `start_mit_loop(hz=1000, home=False)` | 默认以最高频率 1000 Hz 启动控制环 |
 | `stop_mit_loop()` | 停环 |

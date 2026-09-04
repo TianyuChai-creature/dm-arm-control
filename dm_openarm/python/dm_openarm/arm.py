@@ -39,8 +39,20 @@ class Arm:
         self.right = make("right", config.right)
 
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "Arm":
-        return cls(_core.load_arm_config(str(path)))
+    def from_yaml(cls, path: str | Path, *, side: str | None = None) -> "Arm":
+        config = _core.load_arm_config(str(path))
+        if side is None:
+            return cls(config)
+        if side not in ("left", "right"):
+            raise ValueError("side must be 'left' or 'right'")
+        source = config.left if side == "left" else config.right
+        config.motors = list(config.motors)[source.begin : source.begin + source.count]
+        selected = _core.LimbSpec()
+        selected.count = len(config.motors)
+        empty = _core.LimbSpec()
+        config.left = selected if side == "left" else empty
+        config.right = selected if side == "right" else empty
+        return cls(config)
 
     def enable(self) -> None:
         self._arm.enable()

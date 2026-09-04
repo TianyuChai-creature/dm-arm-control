@@ -59,7 +59,7 @@ YAML 后不需要重新编译；修改 C++ 或 Python 包代码后才需要重�
 
 | 对象 | API | 作用 |
 | --- | --- | --- |
-| `Arm` | `from_yaml(path)` | 加载配置，不连接设备 |
+| `Arm` | `from_yaml(path, side=None)` | 加载双臂或指定单臂配置，不连接设备 |
 | `Arm` | `enable()` / `disable()` | 连接并使能 / 停止并失能 |
 | `Arm` | `states()` | 读取全总线状态 |
 | `Arm` | `mit(...)` | 按 CAN ID 写单轴或批量 MIT 命令 |
@@ -201,7 +201,8 @@ from dm_openarm import Arm
 arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
 ```
 
-`Arm.from_yaml(path)` 会读取 YAML 配置，但不会连接硬件，也不会使能电机。
+`Arm.from_yaml(path)` 会读取双臂配置，但不会连接硬件，也不会使能电机。
+扫描或维护单臂时使用 `Arm.from_yaml(path, side="left"|"right")`，SDK 只注册、使能和发送该侧5轴。
 
 ### 使能和失能
 
