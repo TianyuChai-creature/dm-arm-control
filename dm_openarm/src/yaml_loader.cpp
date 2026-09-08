@@ -66,6 +66,10 @@ std::uint16_t parse_uint16(const YAML::Node& node, const std::string& path)
 MotorModel parse_model(const YAML::Node& node, const std::string& path)
 {
   const std::string value = scalar_string(node, path);
+  if(value == "DM4340P")
+  {
+    return MotorModel::DM4340P;
+  }
   if(value == "DM4310")
   {
     return MotorModel::DM4310;

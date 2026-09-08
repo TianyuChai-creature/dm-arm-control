@@ -61,10 +61,14 @@ YAML 后不需要重新编译；修改 C++ 或 Python 包代码后才需要重�
 | --- | --- | --- |
 | `Arm` | `from_yaml(path, side=None)` | 加载双臂或指定单臂配置，不连接设备 |
 | `Arm` | `enable()` / `disable()` | 连接并使能 / 停止并失能 |
+| `Arm` | `enable_seeded(gains, hz=250, ...)` | 原生使能、取反馈并 seed，进入 HOLD |
 | `Arm` | `states()` | 读取全总线状态 |
 | `Arm` | `mit(...)` | 按 CAN ID 写单轴或批量 MIT 命令 |
 | `Arm` | `start_mit_loop(hz=1000, home=False)` | 默认以最高频率 1000 Hz 启动控制环 |
 | `Arm` | `stop_mit_loop()` | 停止控制环并发送零 MIT |
+| `Arm` | `hold_command()` | 保持最后实际执行的命令，前馈不衰减 |
+| `Arm` | `hold(reset_fault=False)` | 实测位置保持；可显式解除超时锁存 |
+| `Arm` | `safety_state` / `fault` / `sent_commands()` | 原生保护状态与实际下发命令 |
 | `Arm` | `set_zero(...)` / `set_zero_all(...)` | 设置电机零位 |
 | `Arm` | `deadline_misses` | 读取控制环超期次数 |
 | `Arm` | `left` / `right` | 获取左右侧 `Limb` |

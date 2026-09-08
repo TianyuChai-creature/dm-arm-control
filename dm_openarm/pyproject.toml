@@ -7,7 +7,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "dm_openarm"
-version = "0.1.2"
+version = "0.1.7"
 description = "Python bindings for the DM OpenArm USB-CANFD controller"
 requires-python = ">=3.8"
 

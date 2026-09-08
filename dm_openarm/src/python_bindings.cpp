@@ -21,6 +21,7 @@ NB_MODULE(_core, m)
   nb::enum_<dm_openarm::MotorModel>(m, "MotorModel")
     .value("DM4310", dm_openarm::MotorModel::DM4310)
     .value("DM8009", dm_openarm::MotorModel::DM8009)
+    .value("DM4340P", dm_openarm::MotorModel::DM4340P)
     .export_values();
 
   nb::enum_<dm_openarm::ControlMode>(m, "ControlMode")
@@ -89,9 +90,9 @@ NB_MODULE(_core, m)
   nb::class_<dm_openarm::DmArm>(m, "DmArm")
     .def(nb::init<dm_openarm::ArmConfig>())
     .def("connect", &dm_openarm::DmArm::connect)
-    .def("enable", &dm_openarm::DmArm::enable)
-    .def("disable", &dm_openarm::DmArm::disable)
-    .def("disconnect", &dm_openarm::DmArm::disconnect)
+    .def("enable", &dm_openarm::DmArm::enable, nb::call_guard<nb::gil_scoped_release>())
+    .def("disable", &dm_openarm::DmArm::disable, nb::call_guard<nb::gil_scoped_release>())
+    .def("disconnect", &dm_openarm::DmArm::disconnect, nb::call_guard<nb::gil_scoped_release>())
     .def("connected", &dm_openarm::DmArm::connected)
     .def("send_mit_all", &dm_openarm::DmArm::send_mit_all, nb::arg("commands"))
     .def("send_zero_mit_all", &dm_openarm::DmArm::send_zero_mit_all)
@@ -101,13 +102,24 @@ NB_MODULE(_core, m)
       nb::arg("can_id"),
       nb::arg("persist") = true)
     .def("set_zero_all", &dm_openarm::DmArm::set_zero_all, nb::arg("persist") = true)
-    .def("states", &dm_openarm::DmArm::states);
+    .def("states", &dm_openarm::DmArm::states, nb::call_guard<nb::gil_scoped_release>());
 
   nb::class_<dm_openarm::MitLoopController>(m, "MitLoopController")
     .def(nb::init<dm_openarm::DmArm&>(), nb::keep_alive<1, 2>())
     .def("start", &dm_openarm::MitLoopController::start,
          nb::arg("hz") = dm_openarm::kDefaultControlHz)
-    .def("stop", &dm_openarm::MitLoopController::stop)
+    .def("enable_seeded", &dm_openarm::MitLoopController::enable_seeded,
+         nb::arg("gains"), nb::arg("hz")=250.0, nb::arg("command_timeout")=0.1, nb::arg("feedback_timeout")=0.2,
+         nb::call_guard<nb::gil_scoped_release>())
+    .def("start_seeded", &dm_openarm::MitLoopController::start_seeded,
+         nb::arg("gains"), nb::arg("hz")=250.0, nb::arg("command_timeout")=0.1, nb::arg("feedback_timeout")=0.2)
+    .def("hold", &dm_openarm::MitLoopController::hold, nb::arg("reset_fault")=false)
+    .def("hold_command", &dm_openarm::MitLoopController::hold_command)
+    .def("safety_state", &dm_openarm::MitLoopController::safety_state)
+    .def("fault", &dm_openarm::MitLoopController::fault)
+    .def("accepted_sequence", &dm_openarm::MitLoopController::accepted_sequence)
+    .def("sent_sequence", &dm_openarm::MitLoopController::sent_sequence)
+    .def("stop", &dm_openarm::MitLoopController::stop, nb::call_guard<nb::gil_scoped_release>())
     .def("running", &dm_openarm::MitLoopController::running)
     .def("deadline_misses", &dm_openarm::MitLoopController::deadline_misses)
     .def(
@@ -119,5 +131,6 @@ NB_MODULE(_core, m)
       "set_all_commands",
       &dm_openarm::MitLoopController::set_all_commands,
       nb::arg("commands"))
-    .def("commands", &dm_openarm::MitLoopController::commands);
+    .def("commands", &dm_openarm::MitLoopController::commands)
+    .def("sent_commands", &dm_openarm::MitLoopController::sent_commands);
 }

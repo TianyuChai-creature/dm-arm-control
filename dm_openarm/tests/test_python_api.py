@@ -23,6 +23,12 @@ def test_from_yaml_accepts_single_side() -> None:
     assert params["side"].default is None
 
 
+def test_native_guard_helpers_are_exposed() -> None:
+    assert callable(Arm.enable_seeded)
+    assert callable(Arm.hold)
+    assert callable(Arm.hold_command)
+
+
 def test_disable_disconnects_after_loop_failure() -> None:
     arm = object.__new__(Arm)
     arm._arm = MagicMock()
@@ -38,6 +44,7 @@ def test_disable_disconnects_after_loop_failure() -> None:
 def main() -> None:
     test_mit_loop_does_not_home_by_default()
     test_from_yaml_accepts_single_side()
+    test_native_guard_helpers_are_exposed()
     test_disable_disconnects_after_loop_failure()
     print("test_python_api OK")
 

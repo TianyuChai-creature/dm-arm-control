@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(dm_openarm VERSION 0.1.2 LANGUAGES CXX)
+project(dm_openarm VERSION 0.1.7 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -71,7 +71,7 @@ set_target_properties(
   PROPERTIES
     POSITION_INDEPENDENT_CODE ON
     BUILD_RPATH ${DMCAN_LIB_DIR}
-    INSTALL_RPATH "\$ORIGIN;\$ORIGIN/../lib;${DMCAN_LIB_DIR}"
+    INSTALL_RPATH "\$ORIGIN;\$ORIGIN/../lib"
 )
 
 function(dm_openarm_set_rpath target_name)
@@ -79,7 +79,7 @@ function(dm_openarm_set_rpath target_name)
     ${target_name}
     PROPERTIES
       BUILD_RPATH ${DMCAN_LIB_DIR}
-      INSTALL_RPATH "\$ORIGIN;\$ORIGIN/../lib;${DMCAN_LIB_DIR}"
+      INSTALL_RPATH "\$ORIGIN;\$ORIGIN/../lib"
   )
 endfunction()
 
@@ -143,4 +143,10 @@ if(BUILD_TESTING)
   dm_openarm_set_rpath(test_mit_loop_controller)
   add_test(NAME test_mit_loop_controller COMMAND test_mit_loop_controller)
 
+endif()
+
+if(BUILD_TESTING)
+  add_executable(test_command_guard tests/test_command_guard.cpp)
+  target_include_directories(test_command_guard PRIVATE include third_party/damiao_sdk/include)
+  add_test(NAME test_command_guard COMMAND test_command_guard)
 endif()

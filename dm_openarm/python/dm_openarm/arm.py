@@ -66,6 +66,37 @@ class Arm:
             finally:
                 self._arm.disconnect()
 
+    def enable_seeded(self, gains, *, hz=250.0, command_timeout=0.1, feedback_timeout=0.2):
+        """Enable, acquire feedback and seed in native code; returns in HOLD or raises."""
+        self._loop.enable_seeded(gains, hz, command_timeout, feedback_timeout)
+
+    def start_seeded(self, gains, *, hz=250.0, command_timeout=0.1, feedback_timeout=0.2):
+        """Native feedback acquisition/seed; poll safety_state until HOLD."""
+        self._loop.start_seeded(gains, hz, command_timeout, feedback_timeout)
+
+    @property
+    def safety_state(self):
+        return self._loop.safety_state()
+
+    @property
+    def fault(self):
+        return self._loop.fault()
+
+    @property
+    def accepted_sequence(self):
+        return self._loop.accepted_sequence()
+
+    @property
+    def sent_sequence(self):
+        return self._loop.sent_sequence()
+
+    def hold(self, *, reset_fault=False):
+        self._loop.hold(reset_fault)
+
+    def hold_command(self):
+        """Preserve last executed stationary position command, including feedforward."""
+        return self._loop.hold_command()
+
     def states(self):
         """All motors on the bus (left then right). Prefer limb.states()."""
         return self._arm.states()
@@ -120,6 +151,9 @@ class Arm:
     def deadline_misses(self) -> int:
         return int(self._loop.deadline_misses())
 
+    def sent_commands(self):
+        return self._loop.sent_commands()
+
     def commands(self):
         return self._loop.commands()
 
@@ -137,8 +171,14 @@ class Arm:
     ) -> None:
         """Bus-level MIT (any can_id). Prefer ``arm.left.mit`` / ``arm.right.mit``."""
         if isinstance(target, dict):
+            # Validate all IDs before one atomic command-table update.
+            ids = [int(m.can_id) for m in self._config.motors]
+            if any(int(cid) not in ids for cid in target):
+                raise ValueError("unknown motor CAN ID")
+            commands = self._loop.commands()
             for can_id, cmd in target.items():
-                self._loop.set_command(can_id, cmd)
+                commands[ids.index(int(can_id))] = cmd
+            self._loop.set_all_commands(commands)
         else:
             self._loop.set_command(
                 target,

@@ -325,12 +325,6 @@ void Motor_Control::recv_callback_thunk(dmcan_device_handle* handle, usb_rx_fram
     {
       owner = it->second;
     }
-    else if(g_owners.size() == 1)
-    {
-      // libdm_device may return a callback handle alias rather than the pointer
-      // obtained from dmcan_device_get. A single open controller is unambiguous.
-      owner = g_owners.begin()->second;
-    }
   }
   if(owner != nullptr)
   {
@@ -428,7 +422,6 @@ void Motor_Control::disable_all()
 
 float Motor_Control::read_motor_param(Motor& DM_Motor, uint8_t RID)
 {
-  read_write_save = true;
   const uint16_t id = DM_Motor.GetCanId();
   const uint8_t payload[8] = {static_cast<uint8_t>(id & 0xff), static_cast<uint8_t>((id >> 8) & 0xff),
                               0x33, RID, 0x00, 0x00, 0x00, 0x00};
@@ -443,7 +436,6 @@ void Motor_Control::save_motor_param(Motor& DM_Motor)
   const uint16_t mode = DM_Motor.GetMotorMode();
   control_cmd(static_cast<uint16_t>(id + mode), 0xFD, DM_Motor.GetChannel());
   usleep(10000);
-  read_write_save = true;
   const uint8_t payload[8] = {static_cast<uint8_t>(id & 0xff), static_cast<uint8_t>((id >> 8) & 0xff),
                               0xAA, 0x01, 0x00, 0x00, 0x00, 0x00};
   send_can(DM_Motor.GetChannel(), 0x7FF, payload, 8);
@@ -465,7 +457,6 @@ void Motor_Control::control_cmd(uint16_t id, uint8_t cmd, uint8_t channel)
 
 void Motor_Control::write_motor_param(Motor& DM_Motor, uint8_t RID, const uint8_t data[4])
 {
-  read_write_save = true;
   const uint16_t id = DM_Motor.GetCanId();
   const uint8_t payload[8] = {static_cast<uint8_t>(id & 0xff), static_cast<uint8_t>((id >> 8) & 0xff),
                               0x55, RID, data[0], data[1], data[2], data[3]};
@@ -625,27 +616,24 @@ void Motor_Control::on_rx_frame(const usb_rx_frame& frame)
     return;
   }
 
-  if(read_write_save.load())
-  {
-    if(len >= 8 && (frame.payload[2] == 0x33 || frame.payload[2] == 0x55 || frame.payload[2] == 0xAA))
-    {
-      if(frame.payload[2] == 0x33 || frame.payload[2] == 0x55)
-      {
-        uint8_t buf[8];
-        std::memcpy(buf, frame.payload, 8);
-        receive_param(buf);
-      }
-      read_write_save = false;
-      return;
-    }
-  }
-
-  if(motors.find(static_cast<uint16_t>(canID)) == motors.end())
+  const auto it = motors.find(static_cast<uint16_t>(canID));
+  if(it == motors.end())
   {
     return;
   }
+  auto m = it->second;
+  // Every delayed/interleaved register reply must bypass motion feedback.
+  if(is_param_reply(frame.payload, len, m->GetCanId()))
+  {
+    if(frame.payload[2] == 0x33 || frame.payload[2] == 0x55)
+    {
+      uint8_t buf[8];
+      std::memcpy(buf, frame.payload, 8);
+      receive_param(buf);
+    }
+    return;
+  }
 
-  auto m = motors[static_cast<uint16_t>(canID)];
   const uint16_t q_uint = (uint16_t(frame.payload[1]) << 8) | frame.payload[2];
   const uint16_t dq_uint = (uint16_t(frame.payload[3]) << 4) | (frame.payload[4] >> 4);
   const uint16_t tau_uint = (uint16_t(frame.payload[4] & 0xf) << 8) | frame.payload[5];
@@ -656,8 +644,7 @@ void Motor_Control::on_rx_frame(const usb_rx_frame& frame)
     uint_to_float(dq_uint, -limit_param_receive.DQ_MAX, limit_param_receive.DQ_MAX, 12);
   const float receive_tau =
     uint_to_float(tau_uint, -limit_param_receive.TAU_MAX, limit_param_receive.TAU_MAX, 12);
-  const uint8_t state_code = static_cast<uint8_t>((frame.payload[0] >> 4) & 0x0f);
-  const uint8_t error_code = state_code >= 8 ? state_code : 0;
+  const uint8_t error_code = static_cast<uint8_t>((frame.payload[0] >> 4) & 0x0f);
   m->receive_data(receive_q, receive_dq, receive_tau, error_code);
   m->updateTimeInterval();
 }

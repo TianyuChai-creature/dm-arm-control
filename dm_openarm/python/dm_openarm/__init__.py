@@ -3,7 +3,7 @@ from ._core import ArmConfig, ControlMode, MitCommand, MotorConfig, MotorModel, 
 from .arm import Arm
 from .limb import Limb
 
-__version__ = "0.1.2"
+__version__ = "0.1.7"
 
 __all__ = [
     "Arm",

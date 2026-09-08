@@ -1,5 +1,23 @@
 # dm_openarm SDK 使用指南
 
+当前发行版本：**0.1.7**。带原生执行保护的用法：
+
+```python
+arm.enable_seeded(gains, hz=250, command_timeout=0.1, feedback_timeout=0.2)
+# safety_state 从 STARTING 进入 HOLD；每轴取得新鲜反馈即原生 seed。
+# ACTIVE 命令必须定期提交，mit(dict) 一次原子替换完整命令表。
+arm.mit(commands)
+arm.hold_command()             # 正常静止：保持最后实际执行的命令，前馈不衰减
+arm.hold()                     # 人工暂停：实测位置保持，原前馈一秒内撤去
+arm.hold(reset_fault=True)     # 显式解除超时锁存，仍保持
+```
+
+`gains` 为 SDK 电机顺序的 `MitCommand` 列表，只取经验证的保持 kp/kd；kp 必须为正。
+启动反馈超时、无效反馈或驱动错误锁存 FAULT；应用命令超时且反馈正常锁存 FAULT_HOLD。
+普通新命令无法解除锁存。无抱闸机器在通信/供电/驱动失效时不能保证继续支撑负载。
+
+下方 `start_mit_loop` 示例只说明兼容 API。
+
 ## 安装
 
 当前 wheel 适用于 **CPython 3.12 / Linux x86_64**。其他 Python 版本或平台需要重新构建 wheel。
@@ -7,7 +25,7 @@
 安装当前目录下的 wheel：
 
 ```bash
-python -m pip install dm_openarm-0.1.2-*.whl
+python -m pip install dm_openarm-0.1.7-*.whl
 ```
 
 当前 SDK 默认控制频率为 **1000 Hz**，即当前支持的最高默认频率；控制频率不再从
@@ -82,11 +100,15 @@ finally:
 
 - `Arm.from_yaml(path, side=None)`：加载配置，不连接设备；指定 `left`/`right` 时仅控制该侧。
 - `enable()` / `disable()`：连接并使能 / 停止控制循环、失能并断开。
+- `enable_seeded(gains, hz=250, command_timeout=0.1, feedback_timeout=0.2)`：原生使能、取反馈并 seed。
 - `states()`：读取全总线反馈。
 - `mit(can_id, kp, kd, q, dq, tau)`：更新单轴 MIT 命令。
-- `mit({can_id: MitCommand(...)})`：批量更新命令。
+- `mit({can_id: MitCommand(...)})`：批量更新命令，一次原子替换完整命令表。
 - `start_mit_loop(hz=1000.0, home=False)`：启动控制循环。
 - `stop_mit_loop()`：停止控制循环并发送零 MIT。
+- `hold_command()`：保持最后实际执行的静止命令，前馈不衰减。
+- `hold(reset_fault=False)`：实测位置保持；`reset_fault=True` 解除超时锁存。
+- `safety_state` / `fault` / `accepted_sequence` / `sent_sequence` / `sent_commands()`：原生保护只读接口。
 - `set_zero(can_id, persist=True)` / `set_zero_all(...)`：设置零位。
 - `deadline_misses`：读取控制循环超期次数。
 - `left` / `right`：访问左右侧 `Limb`。
@@ -123,3 +145,11 @@ dm_openarm/config/arm.yaml
 ```python
 arm.disable()
 ```
+
+0.1.4 修正：反馈状态 `0x1`（已使能）在后端转换为 `error_code=0`，真实报警和未知非零码保持不变。
+
+0.1.5 修正：按回复的完整电机 ID、长度和操作码识别参数读写/保存回复；延迟回复不再成为位置反馈或启动保持目标。
+
+0.1.6 新增 `model: DM4340P`，按工位确认的 PMAX=12.5 rad、VMAX=20 rad/s、TMAX=28 Nm 编码命令与解码反馈。新型号通过 `MotorModel.DM4340P` 暴露给 Python。
+
+0.1.7 新增 `Arm.hold_command()`：在健康位置控制下保持最后实际执行的 q/kp/kd/dq/tau，前馈不衰减。

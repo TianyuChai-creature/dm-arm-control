@@ -18,6 +18,14 @@
 namespace damiao
 {
 
+// Replies carry the full motor ID, unlike status + low-ID feedback headers.
+inline bool is_param_reply(const uint8_t* data, uint8_t len, uint16_t motor_id)
+{
+  return len == 8 && data[0] == (motor_id & 0xff) && data[1] == (motor_id >> 8) &&
+         (data[2] == 0x33 || data[2] == 0x55 || data[2] == 0xAA);
+}
+
+
 #pragma pack(1)
 
 enum DM_Motor_Type
@@ -281,7 +289,6 @@ private:
   std::string sn_;
   bool closed_{false};
 
-  std::atomic<bool> read_write_save{false};
   mutable std::mutex mutex_;
 };
 

@@ -9,6 +9,7 @@ namespace dm_openarm {
 enum class MotorModel {
   DM4310,
   DM8009,
+  DM4340P,
 };
 
 enum class ControlMode {
@@ -22,6 +23,12 @@ struct MitCommand {
   double dq{0.0};
   double tau{0.0};
 };
+
+// Feedback status 0x1 means enabled, not a fault; preserve all other codes.
+inline std::uint8_t motor_error_code(std::uint8_t status) noexcept
+{
+  return status == 1 ? 0 : status;
+}
 
 struct MotorState {
   std::uint16_t can_id{0};

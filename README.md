@@ -80,12 +80,17 @@ C++ MitLoopController @ 1 kHz
 |------|------|
 | `Arm.from_yaml(path, side=None)` | 加载双臂或指定单臂配置，不连设备 |
 | `enable()` / `disable()` | 连接使能 / 停 loop + 失能 |
+| `enable_seeded(gains, hz=250, ...)` | 原生使能、取反馈并 seed，进入 HOLD |
 | `start_mit_loop(hz=1000, home=False)` | 默认以最高频率 1000 Hz 启动控制环 |
 | `stop_mit_loop()` | 停环 |
+| `hold_command()` | 保持最后实际执行的命令，前馈不衰减 |
+| `hold(reset_fault=False)` | 实测位置保持；`reset_fault=True` 解除超时锁存 |
 | `states()` | 全总线反馈（左后右） |
+| `safety_state` / `fault` | 原生保护状态与故障原因 |
+| `sent_commands()` | 实际下发的 MIT 快照 |
 | `deadline_misses` | MIT 循环累计超期次数 |
 | `mit(can_id, kp=, kd=, q=, dq=, tau=)` | 写任意轴 MIT（底层） |
-| `mit({can_id: MitCommand(...), ...})` | 批量 |
+| `mit({can_id: MitCommand(...), ...})` | 批量，一次原子替换命令表 |
 | `set_zero` / `set_zero_all` | 当前位置写零（可 `persist` 写 flash） |
 | `left` / `right` | `Limb` 对象 |
 

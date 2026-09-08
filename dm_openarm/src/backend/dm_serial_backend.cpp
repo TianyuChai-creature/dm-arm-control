@@ -25,6 +25,10 @@ damiao::DM_Motor_Type DmSerialBackend::to_damiao_model(MotorModel model)
     return damiao::DM4310;
   case MotorModel::DM8009:
     return damiao::DM8009;
+  case MotorModel::DM4340P:
+    // Station-confirmed PMAX=12.5, VMAX=20, TMAX=28.
+    // Reuse the vendor profile with these exact ranges (not a voltage assertion).
+    return damiao::DM4340_48V;
   }
   throw std::invalid_argument("unsupported motor model");
 }
@@ -180,7 +184,7 @@ std::vector<MotorState> DmSerialBackend::states() const
       feedback.feedback_interval_s,
       feedback.last_rx_age_s,
       feedback.rx_sequence,
-      feedback.error_code});
+      motor_error_code(feedback.error_code)});
   }
 
   return result;

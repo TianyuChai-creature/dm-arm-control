@@ -1,4 +1,5 @@
 #include "dm_openarm/yaml_loader.hpp"
+#include "protocol/damiao.h"
 
 #include <cassert>
 #include <cstdint>
@@ -223,6 +224,22 @@ motors:
 
 int main()
 {
+  const auto config = dm_openarm::load_arm_config(write_case("dm4340p.yaml", R"yaml(
+usb:
+  serial: TEST
+  nominal_baud: 1000000
+  data_baud: 1000000
+left:
+  motors:
+    - {name: distal, model: DM4340P, mode: MIT, can_id: 0x04, mst_id: 0x14}
+right:
+  motors:
+    - {name: proximal, model: DM8009, mode: MIT, can_id: 0x05, mst_id: 0x15}
+)yaml"));
+  assert(config.motors[0].model == dm_openarm::MotorModel::DM4340P);
+  damiao::Motor motor(damiao::DM4340_48V, damiao::MIT_MODE, 4, 20);
+  const auto limits = motor.get_limit_param();
+  assert(limits.Q_MAX == 12.5f && limits.DQ_MAX == 20 && limits.TAU_MAX == 28);
   test_default_config_loads();
   test_hex_ids_are_parsed();
   test_duplicate_can_id_fails();
