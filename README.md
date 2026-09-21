@@ -8,6 +8,7 @@
 | MIT 力矩模式 | 1 kHz 后台循环 |
 | 双臂 | 左 `0x00–0x04` / 右 `0x05–0x09`，同一总线 |
 | 前馈力矩 | 由上层应用计算后写入 `MitCommand.tau` |
+| 收发频率诊断 | 1 秒滑动窗口统计整臂 TX 和逐电机 RX |
 
 ---
 
@@ -57,7 +58,7 @@ uv build --wheel --out-dir dist --no-create-gitignore dm_openarm
 
 ```
 Python Arm
-├── 设备级：enable / disable / start_mit_loop / states / mit
+├── 设备级：enable / disable / start_mit_loop / states / mit / timing_stats
 ├── arm.left  (Limb)  → mit / set_zero …
 └── arm.right (Limb)  → 同上
         │
@@ -89,13 +90,21 @@ C++ MitLoopController @ 1 kHz
 | `safety_state` / `fault` | 原生保护状态与故障原因 |
 | `sent_commands()` | 实际下发的 MIT 快照 |
 | `deadline_misses` | MIT 循环累计超期次数 |
+| `timing_stats()` | 1 秒窗口的控制下发频率和逐电机反馈频率 |
 | `mit(can_id, kp=, kd=, q=, dq=, tau=)` | 写任意轴 MIT（底层） |
 | `mit({can_id: MitCommand(...), ...})` | 批量，一次原子替换命令表 |
 | `set_zero` / `set_zero_all` | 当前位置写零（可 `persist` 写 flash） |
 | `left` / `right` | `Limb` 对象 |
 
-`MotorState` 还提供 `last_rx_age_s`、`rx_sequence`、`error_code` 和
+`MotorState` 还提供 `feedback_hz`、`last_rx_age_s`、`rx_sequence`、`error_code` 和
 `feedback_fresh(max_age_s=0.1)`，用于判断反馈是否新鲜。
+
+```python
+stats = arm.timing_stats()
+print(stats.target_tx_hz, stats.actual_tx_hz, stats.deadline_misses)
+for motor in stats.motors:
+    print(motor.can_id, motor.rx_hz, motor.last_rx_age_s, motor.rx_frames)
+```
 
 ### 侧级 `Limb`（`arm.left` / `arm.right`）
 

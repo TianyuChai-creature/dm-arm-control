@@ -31,14 +31,17 @@ public:
   void set_zero(std::uint16_t can_id, bool persist = true);
   void set_zero_all(bool persist = true);
   std::vector<MotorState> states() const;
+  std::vector<std::uint16_t> probe_status(double timeout_s);
 
 private:
   static damiao::DM_Motor_Type to_damiao_model(MotorModel model);
 
   ArmConfig config_;
-  std::vector<damiao::DmActData> init_data_;
+  struct SharedBus;
+  std::shared_ptr<SharedBus> bus_;
   mutable std::mutex mutex_;
   std::shared_ptr<damiao::Motor_Control> control_;
+  bool enabled_{false};
 };
 
 }  // namespace dm_openarm::backend

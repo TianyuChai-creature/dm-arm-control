@@ -28,6 +28,7 @@ public:
   void set_zero(std::uint16_t can_id, bool persist = true);
   void set_zero_all(bool persist = true);
   std::vector<MotorState> states() const;
+  std::vector<std::uint16_t> probe_status(double timeout_s);
 
   const ArmConfig& config() const noexcept;
 

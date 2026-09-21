@@ -66,6 +66,31 @@ void test_initial_commands_are_zero()
   assert_close(commands[1].tau, 0.0);
 }
 
+void test_initial_timing_stats_are_disconnected()
+{
+  dm_openarm::DmArm arm(test_config());
+  dm_openarm::MitLoopController loop(arm);
+
+  const auto stats = loop.timing_stats();
+  assert(!stats.connected);
+  assert(!stats.running);
+  assert_close(stats.window_s, 1.0);
+  assert_close(stats.target_tx_hz, 0.0);
+  assert_close(stats.actual_tx_hz, 0.0);
+  assert(stats.tx_cycles == 0);
+  assert(stats.deadline_misses == 0);
+  assert(stats.motors.size() == 2);
+  assert(stats.motors[0].can_id == 0x01);
+  assert(stats.motors[1].can_id == 0x02);
+  for(const auto& motor : stats.motors)
+  {
+    assert_close(motor.rx_hz, 0.0);
+    assert_close(motor.rx_interval_s, 0.0);
+    assert(std::isinf(motor.last_rx_age_s));
+    assert(motor.rx_frames == 0);
+  }
+}
+
 void test_set_command_by_can_id()
 {
   dm_openarm::DmArm arm(test_config());
@@ -116,6 +141,7 @@ void test_unknown_can_id_rejected()
 int main()
 {
   test_initial_commands_are_zero();
+  test_initial_timing_stats_are_disconnected();
   test_set_command_by_can_id();
   test_set_all_commands_checks_size();
   test_unknown_can_id_rejected();

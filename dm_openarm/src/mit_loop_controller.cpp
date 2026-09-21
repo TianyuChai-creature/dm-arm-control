@@ -61,6 +61,12 @@ void MitLoopController::start(double hz)
     std::rethrow_exception(exception);
   }
 
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    target_tx_hz_ = hz;
+    tx_cycles_ = 0;
+    tx_rate_.reset();
+  }
   deadline_misses_ = 0;
   running_ = true;
   worker_ = std::thread([this, hz]() { worker_loop(hz); });
@@ -170,6 +176,63 @@ std::uint64_t MitLoopController::deadline_misses() const noexcept
   return deadline_misses_.load();
 }
 
+TimingStats MitLoopController::timing_stats() const
+{
+  TimingStats result;
+  const auto now = std::chrono::steady_clock::now();
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    result.running = running_.load();
+    result.target_tx_hz = target_tx_hz_;
+    result.actual_tx_hz = tx_rate_.hz(now);
+    result.tx_cycles = tx_cycles_;
+    result.deadline_misses = deadline_misses_.load();
+  }
+
+  result.connected = arm_.connected();
+  if(!result.connected)
+  {
+    result.motors.reserve(can_ids_.size());
+    for(const auto can_id : can_ids_)
+    {
+      result.motors.push_back(MotorTimingStats{can_id});
+    }
+    return result;
+  }
+
+  std::vector<MotorState> states;
+  try
+  {
+    states = arm_.states();
+  }
+  catch(...)
+  {
+    if(arm_.connected())
+    {
+      throw;
+    }
+    result.connected = false;
+    result.motors.reserve(can_ids_.size());
+    for(const auto can_id : can_ids_)
+    {
+      result.motors.push_back(MotorTimingStats{can_id});
+    }
+    return result;
+  }
+
+  result.motors.reserve(states.size());
+  for(const auto& state : states)
+  {
+    result.motors.push_back(MotorTimingStats{
+      state.can_id,
+      state.feedback_hz,
+      state.feedback_interval_s,
+      state.last_rx_age_s,
+      state.rx_sequence});
+  }
+  return result;
+}
+
 void MitLoopController::set_command(std::uint16_t can_id, MitCommand command)
 {
   const auto index = motor_index(can_id);
@@ -234,7 +297,14 @@ void MitLoopController::worker_loop(double hz)
       }
 
       arm_.send_mit_all(snapshot);
-      { std::lock_guard<std::mutex> lock(mutex_); guard_.sent_seq = sending_seq; sent_commands_ = snapshot; }
+      const auto sent_at = clock::now();
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        tx_rate_.record(sent_at);
+        ++tx_cycles_;
+        guard_.sent_seq = sending_seq;
+        sent_commands_ = snapshot;
+      }
 
       next_tick += std::chrono::duration_cast<clock::duration>(period);
       const auto now = clock::now();

@@ -102,6 +102,13 @@ python_script/                   # 独立 Python 脚本
 
 ## 技术笔记
 
+### 2026-09-10 — 收发频率统计 API
+
+- `MitLoopController::timing_stats()` 以固定 1 秒滑动窗口统计成功整臂发送频率。
+- 每台电机仅对有效运动反馈统计 `rx_hz`；参数回复、短帧和未知 CAN ID 不计入。
+- Python `Arm.timing_stats()` 暴露 TX/RX 频率、累计计数、反馈年龄和周期超时数。
+- SDK 版本更新为 0.1.8。
+
 ### 2026-07-20 — u2canfd 链路移植
 
 - **根因**：`dm_openarm` 原先链接旧栈 `libu2canfd.a`（`usb_class`），而工位实测可用的是 `resources/u2canfd` → `libdm_device.so`（dmcan API）+ **经典 CAN 1M**（`canfd=false, brs=false`）。

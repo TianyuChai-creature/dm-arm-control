@@ -1,9 +1,22 @@
 #include "dm_openarm/command_guard.hpp"
 #include <cassert>
+#include <chrono>
 #include "protocol/damiao.h"
 #include <limits>
 using namespace dm_openarm;
 int main() {
+  using rate_clock = damiao::detail::SlidingRate::clock;
+  const auto t0 = rate_clock::time_point{};
+  damiao::detail::SlidingRate rate;
+  assert(rate.hz(t0) == 0.0);
+  for(int i = 0; i <= 1000; ++i) {
+    rate.record(t0 + std::chrono::microseconds(i * 1000));
+  }
+  assert(std::abs(rate.hz(t0 + std::chrono::seconds(1)) - 1000.0) < 0.000001);
+  assert(rate.hz(t0 + std::chrono::seconds(3)) == 0.0);
+  rate.reset();
+  assert(rate.hz(t0) == 0.0);
+
   // Mode-write ACK 04 00 55 0A 01 00 00 00 decoded as the logged bogus pose.
   const double bogus_q = 85.0 / 65535 * 25 - 12.5;
   assert(std::abs(bogus_q - (-12.467574119567871)) < 0.000002);

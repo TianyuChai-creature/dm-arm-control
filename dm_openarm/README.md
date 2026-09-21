@@ -60,6 +60,7 @@ YAML 后不需要重新编译；修改 C++ 或 Python 包代码后才需要重�
 | 对象 | API | 作用 |
 | --- | --- | --- |
 | `Arm` | `from_yaml(path, side=None)` | 加载双臂或指定单臂配置，不连接设备 |
+| `Arm` | `connect_passive()` / `probe_status(timeout_s=0.2)` | 打开 USB 后逐个只读查询 CAN ID，不使能电机；返回有回复的 ID |
 | `Arm` | `enable()` / `disable()` | 连接并使能 / 停止并失能 |
 | `Arm` | `enable_seeded(gains, hz=250, ...)` | 原生使能、取反馈并 seed，进入 HOLD |
 | `Arm` | `states()` | 读取全总线状态 |
@@ -78,7 +79,7 @@ YAML 后不需要重新编译；修改 C++ 或 Python 包代码后才需要重�
 | `Limb` | `set_zero(...)` / `set_zero_all(...)` | 设置本侧零位 |
 
 基础类型：`MitCommand(kp, kd, q, dq, tau)`、`MotorConfig`、`MotorState`、
-`ArmConfig`、`MotorModel` 和 `ControlMode`。`MotorState.feedback_fresh(0.1)`
+`MotorTimingStats`、`TimingStats`、`ArmConfig`、`MotorModel` 和 `ControlMode`。`MotorState.feedback_fresh(0.1)`
 可判断最近 0.1 秒内是否收到反馈。
 
 ### C++
@@ -87,11 +88,13 @@ YAML 后不需要重新编译；修改 C++ 或 Python 包代码后才需要重�
 | --- | --- |
 | 配置 | `load_arm_config(path)` |
 | `DmArm` | `connect()`、`enable()`、`disable()`、`disconnect()`、`connected()` |
+| `DmArm` | `probe_status(timeout_s)` 返回查询后有回复的 CAN ID，不使能电机 |
 | `DmArm` | `send_mit_all()`、`send_zero_mit_all()`、`states()` |
 | `DmArm` | `set_zero()`、`set_zero_all()`、`config()` |
 | `MitLoopController` | `start()`、`stop()`、`running()` |
 | `MitLoopController` | `set_command()`、`set_all_commands()`、`commands()` |
 | `MitLoopController` | `deadline_misses()` |
+| `MitLoopController` | `timing_stats()` |
 
 SDK 不包含轨迹规划、动力学模型或重力辨识；上层应用计算前馈力矩后写入
 `MitCommand.tau`。
@@ -110,6 +113,7 @@ Python 和 C++ API 中的主要物理量单位如下：
 | `position` | 反馈位置 | rad |
 | `velocity` | 反馈速度 | rad/s |
 | `torque` | 反馈力矩 | N·m |
+| `feedback_hz` | 最近 1 秒滑动窗口反馈频率 | Hz |
 | `feedback_interval_s` | 反馈间隔 | s |
 | `last_rx_age_s` | 距离最近反馈的时间 | s |
 | `rx_sequence` | 已接收反馈帧计数 | 帧 |
@@ -230,6 +234,7 @@ for state in arm.states():
         state.position,
         state.velocity,
         state.torque,
+        state.feedback_hz,
         state.feedback_interval_s,
         state.last_rx_age_s,
         state.rx_sequence,
@@ -244,12 +249,39 @@ for state in arm.states():
 | `position` | rad |
 | `velocity` | rad/s |
 | `torque` | N·m |
+| `feedback_hz` | Hz |
 | `feedback_interval_s` | s |
 | `last_rx_age_s` | s |
 | `rx_sequence` | 帧 |
 | `error_code` | - |
 
 `state.feedback_fresh(0.1)` 可用于判断最近 0.1 秒内是否收到反馈。
+
+### 收发频率统计
+
+```python
+stats = arm.timing_stats()
+print(
+    stats.connected,
+    stats.running,
+    stats.target_tx_hz,
+    stats.actual_tx_hz,
+    stats.tx_cycles,
+    stats.deadline_misses,
+)
+for motor in stats.motors:
+    print(
+        motor.can_id,
+        motor.rx_hz,
+        motor.rx_interval_s,
+        motor.last_rx_age_s,
+        motor.rx_frames,
+    )
+```
+
+发送与接收频率均使用固定 1 秒滑动窗口。`actual_tx_hz` 是整臂 MIT 控制周期频率；
+总线发送帧率约为该值乘以电机数量。逐电机 `rx_hz` 只统计有效运动反馈，参数回复和无效帧不计入。
+样本不足两个或最近 1 秒没有有效数据时频率为 `0.0`。
 
 ### 设置零位
 

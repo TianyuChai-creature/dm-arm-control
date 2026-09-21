@@ -1,9 +1,18 @@
 from . import _core
-from ._core import ArmConfig, ControlMode, MitCommand, MotorConfig, MotorModel, MotorState
+from ._core import (
+    ArmConfig,
+    ControlMode,
+    MitCommand,
+    MotorConfig,
+    MotorModel,
+    MotorState,
+    MotorTimingStats,
+    TimingStats,
+)
 from .arm import Arm
 from .limb import Limb
 
-__version__ = "0.1.7"
+__version__ = "0.1.8"
 
 __all__ = [
     "Arm",
@@ -14,5 +23,7 @@ __all__ = [
     "MotorConfig",
     "MotorModel",
     "MotorState",
+    "MotorTimingStats",
+    "TimingStats",
     "_core",
 ]

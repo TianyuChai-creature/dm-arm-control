@@ -45,6 +45,7 @@ class Arm:
             return cls(config)
         if side not in ("left", "right"):
             raise ValueError("side must be 'left' or 'right'")
+        config.bus_motors = list(config.motors)
         source = config.left if side == "left" else config.right
         config.motors = list(config.motors)[source.begin : source.begin + source.count]
         selected = _core.LimbSpec()
@@ -56,6 +57,14 @@ class Arm:
 
     def enable(self) -> None:
         self._arm.enable()
+
+    def connect_passive(self) -> None:
+        """Open the USB bus without enabling any motor."""
+        self._arm.connect()
+
+    def probe_status(self, timeout_s: float = 0.2) -> list[int]:
+        """Return CAN IDs that replied to a read-only status query."""
+        return self._arm.probe_status(timeout_s)
 
     def disable(self) -> None:
         try:
@@ -150,6 +159,10 @@ class Arm:
     @property
     def deadline_misses(self) -> int:
         return int(self._loop.deadline_misses())
+
+    def timing_stats(self):
+        """Return one-second rolling TX and per-motor RX timing statistics."""
+        return self._loop.timing_stats()
 
     def sent_commands(self):
         return self._loop.sent_commands()

@@ -3,6 +3,7 @@
 #include "dm_openarm/dm_arm.hpp"
 #include "dm_openarm/command_guard.hpp"
 #include "dm_openarm/types.hpp"
+#include "unit/sliding_rate.h"
 
 #include <atomic>
 #include <cstdint>
@@ -33,6 +34,7 @@ public:
   void stop();
   bool running() const noexcept;
   std::uint64_t deadline_misses() const noexcept;
+  TimingStats timing_stats() const;
 
   void set_command(std::uint16_t can_id, MitCommand command);
   void set_all_commands(std::vector<MitCommand> commands);
@@ -51,6 +53,9 @@ private:
   std::vector<MitCommand> sent_commands_;
   std::atomic<bool> running_{false};
   std::atomic<std::uint64_t> deadline_misses_{0};
+  double target_tx_hz_{0.0};
+  std::uint64_t tx_cycles_{0};
+  damiao::detail::SlidingRate tx_rate_;
   std::thread worker_;
   std::exception_ptr worker_exception_{nullptr};
 };

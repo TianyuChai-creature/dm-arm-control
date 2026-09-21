@@ -1,6 +1,6 @@
 # dm_openarm SDK 使用指南
 
-当前发行版本：**0.1.7**。带原生执行保护的用法：
+当前发行版本：**0.1.8**。带原生执行保护的用法：
 
 ```python
 arm.enable_seeded(gains, hz=250, command_timeout=0.1, feedback_timeout=0.2)
@@ -25,7 +25,7 @@ arm.hold(reset_fault=True)     # 显式解除超时锁存，仍保持
 安装当前目录下的 wheel：
 
 ```bash
-python -m pip install dm_openarm-0.1.7-*.whl
+python -m pip install dm_openarm-0.1.8-*.whl
 ```
 
 当前 SDK 默认控制频率为 **1000 Hz**，即当前支持的最高默认频率；控制频率不再从
@@ -111,6 +111,7 @@ finally:
 - `safety_state` / `fault` / `accepted_sequence` / `sent_sequence` / `sent_commands()`：原生保护只读接口。
 - `set_zero(can_id, persist=True)` / `set_zero_all(...)`：设置零位。
 - `deadline_misses`：读取控制循环超期次数。
+- `timing_stats()`：读取 1 秒滑动窗口的整臂发送频率和逐电机接收频率。
 - `left` / `right`：访问左右侧 `Limb`。
 
 ### `Limb`
@@ -123,7 +124,7 @@ finally:
 ### `MotorState`
 
 主要字段：`can_id`、`mst_id`、`position`、`velocity`、`torque`、
-`last_rx_age_s`、`rx_sequence`、`error_code`。
+`feedback_hz`、`last_rx_age_s`、`rx_sequence`、`error_code`。
 
 使用 `state.feedback_fresh(max_age_s=0.1)` 判断反馈是否在指定时间内更新。
 
@@ -153,3 +154,5 @@ arm.disable()
 0.1.6 新增 `model: DM4340P`，按工位确认的 PMAX=12.5 rad、VMAX=20 rad/s、TMAX=28 Nm 编码命令与解码反馈。新型号通过 `MotorModel.DM4340P` 暴露给 Python。
 
 0.1.7 新增 `Arm.hold_command()`：在健康位置控制下保持最后实际执行的 q/kp/kd/dq/tau，前馈不衰减。
+
+0.1.8 新增 `Arm.timing_stats()`：使用固定 1 秒滑动窗口报告整臂控制周期频率和逐电机有效反馈频率。

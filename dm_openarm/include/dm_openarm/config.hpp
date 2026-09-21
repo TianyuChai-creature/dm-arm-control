@@ -34,6 +34,8 @@ struct ArmConfig {
   int device_index{0};
   /// Flattened motor table: left motors then right motors.
   std::vector<MotorConfig> motors;
+  // Full registration table for disjoint owners sharing one USB transport.
+  std::vector<MotorConfig> bus_motors;
   LimbSpec left;
   LimbSpec right;
 

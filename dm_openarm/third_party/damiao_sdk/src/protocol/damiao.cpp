@@ -108,6 +108,7 @@ void Motor::updateTimeInterval()
   std::chrono::duration<double> dt = now - last_time_;
   last_time_ = now;
   delta_time_ = dt.count();
+  rx_rate_.record(now);
 }
 
 double Motor::getTimeInterval()
@@ -167,8 +168,9 @@ bool Motor::is_have_param(int key) const
 
 Motor_Control::Motor_Control(uint32_t nom_baud, uint32_t dat_baud, std::string sn,
                              std::vector<DmActData>* data_ptr, bool canfd, bool brs,
-                             int device_index, bool auto_enable, dmcan_device_type device_type)
-  : data_ptr_(data_ptr)
+                             int device_index, bool auto_enable, dmcan_device_type device_type, bool auto_disable)
+  : auto_disable_(auto_disable)
+  , data_ptr_(data_ptr)
   , canfd_(canfd)
   , brs_(brs)
   , nom_baud_(nom_baud)
@@ -260,7 +262,7 @@ Motor_Control::~Motor_Control()
 {
   try
   {
-    disable_all();
+    if (auto_disable_) disable_all();
   }
   catch(...)
   {
@@ -348,9 +350,10 @@ MotorFeedback Motor_Control::getMotorFeedback(uint16_t id) const
   }
 
   const auto& motor = *it->second;
+  const auto now = std::chrono::steady_clock::now();
   const double age = motor.rx_sequence_ == 0
     ? std::numeric_limits<double>::infinity()
-    : std::chrono::duration<double>(std::chrono::steady_clock::now() - motor.last_time_).count();
+    : std::chrono::duration<double>(now - motor.last_time_).count();
   return MotorFeedback{
     motor.state_q,
     motor.state_dq,
@@ -358,7 +361,8 @@ MotorFeedback Motor_Control::getMotorFeedback(uint16_t id) const
     motor.delta_time_,
     age,
     motor.rx_sequence_,
-    motor.error_code_};
+    motor.error_code_,
+    motor.rx_rate_.hz(now)};
 }
 
 std::vector<std::shared_ptr<Motor>> Motor_Control::unique_motors() const
@@ -386,7 +390,26 @@ bool Motor_Control::send_can(uint8_t channel, uint32_t can_id, const uint8_t* da
   {
     return false;
   }
+  std::lock_guard<std::mutex> lock(send_mutex_);
   return dmcan_device_send_can(device_, channel, can_id, canfd_, false, false, brs_, len, data);
+}
+
+void Motor_Control::enable_motor(Motor& motor)
+{
+  switchControlMode(motor, toControlModeCode(motor.GetMotorMode()));
+  usleep(2000);
+  for (int j = 0; j < 5; ++j) {
+    control_cmd(static_cast<uint16_t>(motor.GetCanId() + motor.GetMotorMode()), 0xFC, motor.GetChannel());
+    usleep(2000);
+  }
+}
+
+void Motor_Control::disable_motor(Motor& motor)
+{
+  for (int j = 0; j < 5; ++j) {
+    control_cmd(static_cast<uint16_t>(motor.GetCanId() + motor.GetMotorMode()), 0xFD, motor.GetChannel());
+    usleep(2000);
+  }
 }
 
 void Motor_Control::enable_all()
@@ -447,6 +470,14 @@ void Motor_Control::refresh_motor_status(Motor& motor)
   const uint8_t payload[4] = {static_cast<uint8_t>(motor.GetCanId() & 0xff),
                               static_cast<uint8_t>((motor.GetCanId() >> 8) & 0xff), 0xCC, 0x00};
   send_can(motor.GetChannel(), 0x7FF, payload, 4);
+}
+
+uint64_t Motor_Control::response_sequence(uint16_t can_id) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto it = motors.find(can_id);
+  if(it == motors.end()) throw std::invalid_argument("unknown motor CAN ID");
+  return it->second->rx_sequence_ + it->second->status_probe_sequence_;
 }
 
 void Motor_Control::control_cmd(uint16_t id, uint8_t cmd, uint8_t channel)
@@ -611,17 +642,21 @@ void Motor_Control::on_rx_frame(const usb_rx_frame& frame)
 
   const uint32_t canID = frame.head.can_id;
   const uint8_t len = dlc_to_len(static_cast<uint8_t>(frame.head.dlc));
-  if(len < 6)
-  {
-    return;
-  }
-
   const auto it = motors.find(static_cast<uint16_t>(canID));
   if(it == motors.end())
   {
     return;
   }
   auto m = it->second;
+  // The read-only 0xCC reply is not a motion sample: do not seed an MIT HOLD
+  // target from its payload, even if the motor is disabled.
+  if(len >= 4 && frame.payload[0] == (m->GetCanId() & 0xff) &&
+     frame.payload[1] == (m->GetCanId() >> 8) && frame.payload[2] == 0xCC)
+  {
+    ++m->status_probe_sequence_;
+    return;
+  }
+  if(len < 6) return;
   // Every delayed/interleaved register reply must bypass motion feedback.
   if(is_param_reply(frame.payload, len, m->GetCanId()))
   {

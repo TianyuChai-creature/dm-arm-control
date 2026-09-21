@@ -2,6 +2,7 @@
 #define DAMIAO_H
 
 #include "dmcan/dmcan.h"
+#include "unit/sliding_rate.h"
 
 #include <atomic>
 #include <chrono>
@@ -144,6 +145,7 @@ struct MotorFeedback
   double last_rx_age_s{std::numeric_limits<double>::infinity()};
   uint64_t rx_sequence{0};
   uint8_t error_code{0};
+  double feedback_hz{0.0};
 };
 
 class Motor
@@ -173,7 +175,9 @@ private:
   std::chrono::steady_clock::time_point last_time_;
   double delta_time_{0.0};
   uint64_t rx_sequence_{0};
+  uint64_t status_probe_sequence_{0};
   uint8_t error_code_{0};
+  detail::SlidingRate rx_rate_;
 
   friend class Motor_Control;
 
@@ -214,18 +218,21 @@ public:
   Motor_Control(uint32_t nom_baud, uint32_t dat_baud, std::string sn,
                 std::vector<DmActData>* data_ptr, bool canfd = false, bool brs = false,
                 int device_index = 0, bool auto_enable = true,
-                dmcan_device_type device_type = DMCAN_USB2CANFD);
+                dmcan_device_type device_type = DMCAN_USB2CANFD, bool auto_disable = true);
   ~Motor_Control();
 
   Motor_Control(const Motor_Control&) = delete;
   Motor_Control& operator=(const Motor_Control&) = delete;
 
   void addMotor(std::shared_ptr<Motor> DM_Motor);
+  void enable_motor(Motor& motor);
+  void disable_motor(Motor& motor);
   void enable_all();
   void disable_all();
   float read_motor_param(Motor& DM_Motor, uint8_t RID);
   void save_motor_param(Motor& DM_Motor);
   void refresh_motor_status(Motor& motor);
+  uint64_t response_sequence(uint16_t can_id) const;
 
   void control_cmd(uint16_t id, uint8_t cmd, uint8_t channel = 0);
   void write_motor_param(Motor& DM_Motor, uint8_t RID, const uint8_t data[4]);
@@ -277,6 +284,8 @@ private:
   std::vector<std::shared_ptr<Motor>> unique_motors() const;
   void close_device();
 
+  bool auto_disable_;
+  std::mutex send_mutex_;
   std::unordered_map<uint16_t, std::shared_ptr<Motor>> motors;
   std::vector<DmActData>* data_ptr_{nullptr};
 

@@ -95,6 +95,11 @@ std::vector<MotorState> DmArm::states() const
   return backend_.states();
 }
 
+std::vector<std::uint16_t> DmArm::probe_status(double timeout_s)
+{
+  return backend_.probe_status(timeout_s);
+}
+
 const ArmConfig& DmArm::config() const noexcept
 {
   return config_;

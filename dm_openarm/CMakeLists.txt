@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(dm_openarm VERSION 0.1.7 LANGUAGES CXX)
+project(dm_openarm VERSION 0.1.8 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -149,4 +149,10 @@ if(BUILD_TESTING)
   add_executable(test_command_guard tests/test_command_guard.cpp)
   target_include_directories(test_command_guard PRIVATE include third_party/damiao_sdk/include)
   add_test(NAME test_command_guard COMMAND test_command_guard)
+endif()
+
+if(BUILD_TESTING)
+  add_executable(test_shared_bus tests/test_shared_bus.cpp)
+  target_link_libraries(test_shared_bus PRIVATE dm_openarm)
+  add_test(NAME test_shared_bus COMMAND test_shared_bus)
 endif()

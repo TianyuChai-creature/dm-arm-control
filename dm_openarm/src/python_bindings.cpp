@@ -48,12 +48,30 @@ NB_MODULE(_core, m)
     .def_ro("position", &dm_openarm::MotorState::position)
     .def_ro("velocity", &dm_openarm::MotorState::velocity)
     .def_ro("torque", &dm_openarm::MotorState::torque)
+    .def_ro("feedback_hz", &dm_openarm::MotorState::feedback_hz)
     .def_ro("feedback_interval_s", &dm_openarm::MotorState::feedback_interval_s)
     .def_ro("last_rx_age_s", &dm_openarm::MotorState::last_rx_age_s)
     .def_ro("rx_sequence", &dm_openarm::MotorState::rx_sequence)
     .def_ro("error_code", &dm_openarm::MotorState::error_code)
     .def("feedback_fresh", &dm_openarm::MotorState::feedback_fresh,
          nb::arg("max_age_s") = 0.1);
+
+  nb::class_<dm_openarm::MotorTimingStats>(m, "MotorTimingStats")
+    .def_ro("can_id", &dm_openarm::MotorTimingStats::can_id)
+    .def_ro("rx_hz", &dm_openarm::MotorTimingStats::rx_hz)
+    .def_ro("rx_interval_s", &dm_openarm::MotorTimingStats::rx_interval_s)
+    .def_ro("last_rx_age_s", &dm_openarm::MotorTimingStats::last_rx_age_s)
+    .def_ro("rx_frames", &dm_openarm::MotorTimingStats::rx_frames);
+
+  nb::class_<dm_openarm::TimingStats>(m, "TimingStats")
+    .def_ro("connected", &dm_openarm::TimingStats::connected)
+    .def_ro("running", &dm_openarm::TimingStats::running)
+    .def_ro("window_s", &dm_openarm::TimingStats::window_s)
+    .def_ro("target_tx_hz", &dm_openarm::TimingStats::target_tx_hz)
+    .def_ro("actual_tx_hz", &dm_openarm::TimingStats::actual_tx_hz)
+    .def_ro("tx_cycles", &dm_openarm::TimingStats::tx_cycles)
+    .def_ro("deadline_misses", &dm_openarm::TimingStats::deadline_misses)
+    .def_ro("motors", &dm_openarm::TimingStats::motors);
 
   nb::class_<dm_openarm::MotorConfig>(m, "MotorConfig")
     .def(nb::init<>())
@@ -77,6 +95,7 @@ NB_MODULE(_core, m)
     .def_rw("brs", &dm_openarm::ArmConfig::brs)
     .def_rw("device_index", &dm_openarm::ArmConfig::device_index)
     .def_rw("motors", &dm_openarm::ArmConfig::motors)
+    .def_rw("bus_motors", &dm_openarm::ArmConfig::bus_motors)
     .def_rw("left", &dm_openarm::ArmConfig::left)
     .def_rw("right", &dm_openarm::ArmConfig::right);
 
@@ -94,6 +113,8 @@ NB_MODULE(_core, m)
     .def("disable", &dm_openarm::DmArm::disable, nb::call_guard<nb::gil_scoped_release>())
     .def("disconnect", &dm_openarm::DmArm::disconnect, nb::call_guard<nb::gil_scoped_release>())
     .def("connected", &dm_openarm::DmArm::connected)
+    .def("probe_status", &dm_openarm::DmArm::probe_status, nb::arg("timeout_s"),
+         nb::call_guard<nb::gil_scoped_release>())
     .def("send_mit_all", &dm_openarm::DmArm::send_mit_all, nb::arg("commands"))
     .def("send_zero_mit_all", &dm_openarm::DmArm::send_zero_mit_all)
     .def(
@@ -122,6 +143,7 @@ NB_MODULE(_core, m)
     .def("stop", &dm_openarm::MitLoopController::stop, nb::call_guard<nb::gil_scoped_release>())
     .def("running", &dm_openarm::MitLoopController::running)
     .def("deadline_misses", &dm_openarm::MitLoopController::deadline_misses)
+    .def("timing_stats", &dm_openarm::MitLoopController::timing_stats)
     .def(
       "set_command",
       &dm_openarm::MitLoopController::set_command,
