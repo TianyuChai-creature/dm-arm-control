@@ -53,6 +53,8 @@ NB_MODULE(_core, m)
     .def_ro("last_rx_age_s", &dm_openarm::MotorState::last_rx_age_s)
     .def_ro("rx_sequence", &dm_openarm::MotorState::rx_sequence)
     .def_ro("error_code", &dm_openarm::MotorState::error_code)
+    .def_ro("raw_status", &dm_openarm::MotorState::raw_status)
+    .def_ro("enabled_confirmed", &dm_openarm::MotorState::enabled_confirmed)
     .def("feedback_fresh", &dm_openarm::MotorState::feedback_fresh,
          nb::arg("max_age_s") = 0.1);
 

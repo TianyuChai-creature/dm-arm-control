@@ -233,6 +233,8 @@ public:
   void save_motor_param(Motor& DM_Motor);
   void refresh_motor_status(Motor& motor);
   uint64_t response_sequence(uint16_t can_id) const;
+  uint64_t status_probe_sequence(uint16_t can_id) const;
+  void validate_mit(Motor& motor, float kp, float kd, float q, float dq, float tau) const;
 
   void control_cmd(uint16_t id, uint8_t cmd, uint8_t channel = 0);
   void write_motor_param(Motor& DM_Motor, uint8_t RID, const uint8_t data[4]);

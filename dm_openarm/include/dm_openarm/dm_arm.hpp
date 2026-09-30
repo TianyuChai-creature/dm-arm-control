@@ -5,9 +5,11 @@
 #include "dm_openarm/types.hpp"
 
 #include <cstdint>
+#include <mutex>
 #include <vector>
 
 namespace dm_openarm {
+class MitLoopController;
 
 class DmArm {
 public:
@@ -24,6 +26,7 @@ public:
   bool connected() const noexcept;
 
   void send_mit_all(const std::vector<MitCommand>& commands);
+  void validate_mit_all(const std::vector<MitCommand>& commands) const;
   void send_zero_mit_all();
   void set_zero(std::uint16_t can_id, bool persist = true);
   void set_zero_all(bool persist = true);
@@ -33,6 +36,11 @@ public:
   const ArmConfig& config() const noexcept;
 
 private:
+  friend class MitLoopController;
+  void set_loop_active(bool active);
+  void disable_for_loop();
+  mutable std::mutex maintenance_mutex_;
+  bool loop_active_{false};
   ArmConfig config_;
   backend::DmSerialBackend backend_;
 };

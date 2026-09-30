@@ -39,7 +39,8 @@ public:
     accepted_seq = sent_seq = 0;
   }
   static bool fresh(const MotorState& s, double age) {
-    return s.feedback_fresh(age) && s.error_code == 0 && std::isfinite(s.position) &&
+    return s.feedback_fresh(age) && s.raw_status == 1 && s.enabled_confirmed &&
+           s.error_code == 0 && std::isfinite(s.position) &&
            std::isfinite(s.velocity) && std::isfinite(s.torque);
   }
   void hold(const std::vector<MotorState>& states, const std::vector<MitCommand>& commands,

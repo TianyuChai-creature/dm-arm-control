@@ -155,4 +155,8 @@ if(BUILD_TESTING)
   add_executable(test_shared_bus tests/test_shared_bus.cpp)
   target_link_libraries(test_shared_bus PRIVATE dm_openarm)
   add_test(NAME test_shared_bus COMMAND test_shared_bus)
+
+  add_executable(test_safety_transport tests/test_safety_transport.cpp)
+  target_link_libraries(test_safety_transport PRIVATE dm_openarm)
+  add_test(NAME test_safety_transport COMMAND test_safety_transport)
 endif()

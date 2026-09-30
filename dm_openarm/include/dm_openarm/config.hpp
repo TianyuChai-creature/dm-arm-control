@@ -9,6 +9,9 @@
 namespace dm_openarm {
 
 inline constexpr double kDefaultControlHz = 1000.0;
+// Software scheduler bound only; station bus capacity still requires validation.
+inline constexpr double kMinControlHz = 10.0;
+inline constexpr double kMaxControlHz = 1000.0;
 
 struct MotorConfig {
   std::string name;
