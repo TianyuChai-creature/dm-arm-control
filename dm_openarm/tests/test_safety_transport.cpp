@@ -147,6 +147,13 @@ int main(){using namespace dm_openarm;
   {
     DmArm arm(config());arm.enable();MitLoopController loop(arm);
     loop.start(10.0);std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    loop.stop();
+    assert(count(1,0xfd)>=5 && count(2,0xfd)>=5);
+    arm.disconnect();frames.clear();
+  }
+  {
+    DmArm arm(config());arm.enable();MitLoopController loop(arm);
+    loop.start(10.0);std::this_thread::sleep_for(std::chrono::milliseconds(10));
     failed_mit_id=1;bool failed=false;try{loop.stop();}catch(const std::runtime_error&){failed=true;}
     failed_mit_id=-1;assert(failed && count(1,0xfd)>=5 && count(2,0xfd)>=5);
     arm.disconnect();frames.clear();
