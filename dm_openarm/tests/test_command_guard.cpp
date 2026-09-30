@@ -37,7 +37,7 @@ int main() {
     std::vector<MitCommand> gain(1, MitCommand{60,4,0,0,0});
     startup.start(gain, 0);
     MotorState s{}; s.can_id=4; s.rx_sequence=1; s.last_rx_age_s=0.01;
-    s.error_code=motor_error_code(status);
+    s.error_code=motor_error_code(status); s.raw_status=status; s.enabled_confirmed=(status==1);
     bool fault=false;
     try { startup.step({s}, gain, 0.01); }
     catch (const std::runtime_error& e) {
@@ -45,12 +45,13 @@ int main() {
       assert(std::string(e.what()).find("CAN ID=4 error_code=" + std::to_string(status)) != std::string::npos);
     }
     assert(fault == (status != 0 && status != 1));
+    if(status==0) assert(startup.state=="STARTING");
   }
   CommandGuard guard;
   std::vector<MitCommand> gains(2, MitCommand{60,4,0,0,0});
   guard.start(gains, 0);
   MotorState state{}; state.position=0.3; state.velocity=0; state.torque=1;
-  state.rx_sequence=1; state.error_code=0; state.last_rx_age_s=0.01;
+  state.rx_sequence=1; state.error_code=0; state.raw_status=1; state.enabled_confirmed=true; state.last_rx_age_s=0.01;
   std::vector<MotorState> feedback(2,state);
   auto output=guard.step(feedback,gains,0.01);
   assert(guard.state=="HOLD" && output[0].q==0.3);

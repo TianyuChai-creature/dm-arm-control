@@ -42,6 +42,10 @@ struct MotorState {
   std::uint64_t rx_sequence{0};
   std::uint8_t error_code{0};
   double feedback_hz{0.0};
+  // Raw firmware nibble. Status 1 is the documented enabled indication, but
+  // physical actuation/disable semantics still require station verification.
+  std::uint8_t raw_status{0};
+  bool enabled_confirmed{false};
 
   bool feedback_fresh(double max_age_s = 0.1) const noexcept
   {

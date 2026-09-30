@@ -9,6 +9,12 @@ namespace {
 double monotonic_seconds() {
  return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
+std::string exception_text(std::exception_ptr p) {
+  try { if (p) std::rethrow_exception(p); }
+  catch (const std::exception& e) { return e.what(); }
+  catch (...) { return "unknown exception"; }
+  return {};
+}
 }
 
 
@@ -40,9 +46,10 @@ MitLoopController::~MitLoopController()
 
 void MitLoopController::start(double hz)
 {
-  if(!std::isfinite(hz) || hz <= 0.0)
+  if(!std::isfinite(hz) || hz < kMinControlHz || hz > kMaxControlHz ||
+     std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(1.0/hz)).count() <= 0)
   {
-    throw std::invalid_argument("MIT loop frequency must be positive");
+    throw std::invalid_argument("MIT loop frequency outside bounded scheduler range");
   }
   if(running_)
   {
@@ -68,13 +75,16 @@ void MitLoopController::start(double hz)
     tx_rate_.reset();
   }
   deadline_misses_ = 0;
+  arm_.set_loop_active(true);
   running_ = true;
-  worker_ = std::thread([this, hz]() { worker_loop(hz); });
+  try { worker_ = std::thread([this, hz]() { worker_loop(hz); }); }
+  catch (...) { running_ = false; arm_.set_loop_active(false); throw; }
 }
 
 void MitLoopController::enable_seeded(std::vector<MitCommand> gains, double hz,
                                           double command_timeout, double feedback_timeout) {
-  if (!std::isfinite(hz) || hz <= 0 || running_) throw std::invalid_argument("invalid startup frequency/state");
+  if (!std::isfinite(hz) || hz < kMinControlHz || hz > kMaxControlHz || running_)
+    throw std::invalid_argument("invalid startup frequency/state");
   if (gains.size() != commands_.size()) throw std::invalid_argument("hold gain count mismatch");
   CommandGuard validation;
   validation.command_timeout = command_timeout; validation.feedback_timeout = feedback_timeout;
@@ -87,9 +97,17 @@ void MitLoopController::enable_seeded(std::vector<MitCommand> gains, double hz,
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
     if (safety_state() != "HOLD") throw std::runtime_error("native startup failed: " + fault());
   } catch (...) {
+    const auto original = std::current_exception();
     try { stop(); } catch (...) {}
-    try { arm_.disable(); } catch (...) {}
-    throw;
+    try { arm_.disable(); }
+    catch (...) {
+      const auto message = exception_text(original) + "; shutdown unknown: " +
+                           exception_text(std::current_exception());
+      { std::lock_guard<std::mutex> lock(mutex_);
+        guard_.state = "SHUTDOWN_UNKNOWN"; guard_.fault = message; guard_.latched = true; }
+      throw std::runtime_error(message);
+    }
+    std::rethrow_exception(original);
   }
 }
 
@@ -135,6 +153,7 @@ void MitLoopController::stop()
   }
 
   std::exception_ptr stop_exception;
+  std::exception_ptr disable_exception;
   if(was_running)
   {
     try
@@ -144,16 +163,22 @@ void MitLoopController::stop()
     catch(...)
     {
       stop_exception = std::current_exception();
-      try
-      {
-        arm_.disable();
-      }
-      catch(...)
-      {
-      }
     }
+    // A zero-torque MIT frame does not disable the motor. Always send FD and
+    // require fresh status-0 feedback before reporting a safe loop stop.
+    try { arm_.disable_for_loop(); }
+    catch(...) { disable_exception = std::current_exception(); }
   }
 
+  arm_.set_loop_active(false);
+
+  if(disable_exception) {
+    const auto message = std::string("shutdown unknown: ") + exception_text(disable_exception) +
+                         (stop_exception ? "; zero send failed: " + exception_text(stop_exception) : "");
+    { std::lock_guard<std::mutex> lock(mutex_);
+      guard_.state = "SHUTDOWN_UNKNOWN"; guard_.fault = message; guard_.latched = true; }
+    throw std::runtime_error(message);
+  }
   if(worker_exception_)
   {
     auto exception = worker_exception_;
@@ -238,6 +263,7 @@ void MitLoopController::set_command(std::uint16_t can_id, MitCommand command)
   const auto index = motor_index(can_id);
   std::lock_guard<std::mutex> lock(mutex_);
   auto updated = commands_; updated[index] = command;
+  arm_.validate_mit_all(updated);
   guard_.accept(updated, monotonic_seconds());
   commands_ = std::move(updated);
 }
@@ -250,6 +276,7 @@ void MitLoopController::set_all_commands(std::vector<MitCommand> commands)
   }
 
   std::lock_guard<std::mutex> lock(mutex_);
+  arm_.validate_mit_all(commands);
   guard_.accept(commands, monotonic_seconds());
   commands_ = std::move(commands);
 }
@@ -320,28 +347,32 @@ void MitLoopController::worker_loop(double hz)
   {
     const auto exception = std::current_exception();
     running_ = false;
+    std::string cleanup_error;
     try
     {
       arm_.send_zero_mit_all();
     }
-    catch(...)
-    {
-    }
+    catch(...) { cleanup_error = "zero send failed: " + exception_text(std::current_exception()); }
     try
     {
-      arm_.disable();
+      arm_.disable_for_loop();
     }
-    catch(...)
-    {
+    catch(...) {
+      cleanup_error += (cleanup_error.empty() ? "" : "; ");
+      cleanup_error += "shutdown unknown: " + exception_text(std::current_exception());
     }
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      guard_.state = "FAULT"; guard_.latched = true;
+      guard_.state = cleanup_error.find("shutdown unknown") != std::string::npos ? "SHUTDOWN_UNKNOWN" : "FAULT";
+      guard_.latched = true;
       try { std::rethrow_exception(exception); }
       catch (const std::exception& e) { guard_.fault = e.what(); }
       catch (...) { guard_.fault = "MIT worker failure"; }
+      if (!cleanup_error.empty()) guard_.fault += "; " + cleanup_error;
     }
-    worker_exception_ = exception;
+    worker_exception_ = cleanup_error.empty() ? exception :
+      std::make_exception_ptr(std::runtime_error(exception_text(exception) + "; " + cleanup_error));
+    arm_.set_loop_active(false);
   }
 }
 

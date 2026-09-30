@@ -56,6 +56,7 @@ class Arm:
         return cls(config)
 
     def enable(self) -> None:
+        """Dispatch enable frames. Use enable_seeded for fresh status-1 confirmation."""
         self._arm.enable()
 
     def connect_passive(self) -> None:
@@ -63,17 +64,38 @@ class Arm:
         self._arm.connect()
 
     def probe_status(self, timeout_s: float = 0.2) -> list[int]:
-        """Return CAN IDs that replied to a read-only status query."""
+        """Return IDs with 0xCC-format replies observed after dispatch.
+
+        The protocol has no request nonce, so a delayed older reply is
+        indistinguishable from a reply to this call.
+        """
         return self._arm.probe_status(timeout_s)
 
     def disable(self) -> None:
+        loop_error = None
+        disable_error = None
         try:
             self.stop_mit_loop()
-        finally:
+        except Exception as exc:
+            loop_error = exc
+        try:
+            self._arm.disable()
+        except Exception as exc:
+            disable_error = exc
+        disconnect_error = None
+        if disable_error is None:
             try:
-                self._arm.disable()
-            finally:
                 self._arm.disconnect()
+            except Exception as exc:
+                disconnect_error = exc
+        if disable_error is not None or disconnect_error is not None:
+            cause = disable_error if disable_error is not None else disconnect_error
+            detail = f"shutdown unknown: {cause}"
+            if loop_error is not None:
+                detail += f"; loop stop failed: {loop_error}"
+            raise RuntimeError(detail) from cause
+        if loop_error is not None:
+            raise loop_error
 
     def enable_seeded(self, gains, *, hz=250.0, command_timeout=0.1, feedback_timeout=0.2):
         """Enable, acquire feedback and seed in native code; returns in HOLD or raises."""
@@ -111,9 +133,13 @@ class Arm:
         return self._arm.states()
 
     def set_zero(self, can_id: int, persist: bool = True) -> None:
+        if self._loop.running():
+            raise RuntimeError("set_zero requires a stopped MIT loop")
         self._arm.set_zero(can_id, persist)
 
     def set_zero_all(self, persist: bool = True) -> None:
+        if self._loop.running():
+            raise RuntimeError("set_zero_all requires a stopped MIT loop")
         self._arm.set_zero_all(persist)
 
     def start_mit_loop(
@@ -149,8 +175,7 @@ class Arm:
             time.sleep(0.01)
 
     def stop_mit_loop(self) -> None:
-        if self._loop.running():
-            self._loop.stop()
+        self._loop.stop()
 
     @property
     def mit_loop_running(self) -> bool:

@@ -22,8 +22,15 @@ void dmcan_device_disable_channel(dmcan_device_handle*,uint8_t) {}
 bool dmcan_device_set_channel_baudrate(dmcan_device_handle*,uint8_t,dmcan_channel_can_info) { return true; }
 void dmcan_device_hook_recv_callback(dmcan_device_handle*,dmcan_frame_callback cb) { recv_callback=cb; }
 bool dmcan_device_send_can(dmcan_device_handle*,uint8_t,uint32_t id,bool,bool,bool,bool,uint8_t n,const uint8_t* data) {
-  if(n==8 && data[0]==255 && data[7]==0xFC) enabled.insert(id);
-  else if(n==8 && data[0]==255 && data[7]==0xFD) disabled.insert(id);
+  if(n==8 && data[0]==255 && (data[7]==0xFC || data[7]==0xFD)) {
+    if(data[7]==0xFC) enabled.insert(id); else disabled.insert(id);
+    if(recv_callback) {
+      usb_rx_frame f{}; f.head.can_id=id; f.head.dlc=8;
+      f.payload[0]=static_cast<uint8_t>(((data[7]==0xFC ? 1 : 0)<<4) | (id & 0x0f));
+      f.payload[1]=0x80; f.payload[3]=0x80; f.payload[4]=0x08;
+      recv_callback(&device,&f);
+    }
+  }
   else if(id==0x7FF && n==4 && data[2]==0xCC && data[0]==1 && recv_callback) {
     usb_rx_frame reply{};
     reply.head.can_id=1; reply.head.dlc=4;

@@ -396,20 +396,27 @@ bool Motor_Control::send_can(uint8_t channel, uint32_t can_id, const uint8_t* da
 
 void Motor_Control::enable_motor(Motor& motor)
 {
-  switchControlMode(motor, toControlModeCode(motor.GetMotorMode()));
+  if (!switchControlMode(motor, toControlModeCode(motor.GetMotorMode())))
+    throw std::runtime_error("enable_motor: mode send failed");
   usleep(2000);
+  std::exception_ptr first;
   for (int j = 0; j < 5; ++j) {
-    control_cmd(static_cast<uint16_t>(motor.GetCanId() + motor.GetMotorMode()), 0xFC, motor.GetChannel());
+    try { control_cmd(static_cast<uint16_t>(motor.GetCanId() + motor.GetMotorMode()), 0xFC, motor.GetChannel()); }
+    catch (...) { if (!first) first = std::current_exception(); }
     usleep(2000);
   }
+  if (first) std::rethrow_exception(first);
 }
 
 void Motor_Control::disable_motor(Motor& motor)
 {
+  std::exception_ptr first;
   for (int j = 0; j < 5; ++j) {
-    control_cmd(static_cast<uint16_t>(motor.GetCanId() + motor.GetMotorMode()), 0xFD, motor.GetChannel());
+    try { control_cmd(static_cast<uint16_t>(motor.GetCanId() + motor.GetMotorMode()), 0xFD, motor.GetChannel()); }
+    catch (...) { if (!first) first = std::current_exception(); }
     usleep(2000);
   }
+  if (first) std::rethrow_exception(first);
 }
 
 void Motor_Control::enable_all()
@@ -448,7 +455,8 @@ float Motor_Control::read_motor_param(Motor& DM_Motor, uint8_t RID)
   const uint16_t id = DM_Motor.GetCanId();
   const uint8_t payload[8] = {static_cast<uint8_t>(id & 0xff), static_cast<uint8_t>((id >> 8) & 0xff),
                               0x33, RID, 0x00, 0x00, 0x00, 0x00};
-  send_can(DM_Motor.GetChannel(), 0x7FF, payload, 8);
+  if (!send_can(DM_Motor.GetChannel(), 0x7FF, payload, 8))
+    throw std::runtime_error("read_motor_param: CAN send failed");
   usleep(2000);
   return 0;
 }
@@ -461,7 +469,8 @@ void Motor_Control::save_motor_param(Motor& DM_Motor)
   usleep(10000);
   const uint8_t payload[8] = {static_cast<uint8_t>(id & 0xff), static_cast<uint8_t>((id >> 8) & 0xff),
                               0xAA, 0x01, 0x00, 0x00, 0x00, 0x00};
-  send_can(DM_Motor.GetChannel(), 0x7FF, payload, 8);
+  if (!send_can(DM_Motor.GetChannel(), 0x7FF, payload, 8))
+    throw std::runtime_error("save_motor_param: CAN send failed");
   usleep(100000);
 }
 
@@ -469,7 +478,16 @@ void Motor_Control::refresh_motor_status(Motor& motor)
 {
   const uint8_t payload[4] = {static_cast<uint8_t>(motor.GetCanId() & 0xff),
                               static_cast<uint8_t>((motor.GetCanId() >> 8) & 0xff), 0xCC, 0x00};
-  send_can(motor.GetChannel(), 0x7FF, payload, 4);
+  if (!send_can(motor.GetChannel(), 0x7FF, payload, 4))
+    throw std::runtime_error("refresh_motor_status: CAN send failed");
+}
+
+uint64_t Motor_Control::status_probe_sequence(uint16_t can_id) const
+{
+  std::lock_guard<std::mutex> lock(mutex_);
+  const auto it = motors.find(can_id);
+  if(it == motors.end()) throw std::invalid_argument("unknown motor CAN ID");
+  return it->second->status_probe_sequence_;
 }
 
 uint64_t Motor_Control::response_sequence(uint16_t can_id) const
@@ -483,7 +501,8 @@ uint64_t Motor_Control::response_sequence(uint16_t can_id) const
 void Motor_Control::control_cmd(uint16_t id, uint8_t cmd, uint8_t channel)
 {
   const uint8_t payload[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, cmd};
-  send_can(channel, id, payload, 8);
+  if (!send_can(channel, id, payload, 8))
+    throw std::runtime_error("control_cmd: CAN send failed");
 }
 
 void Motor_Control::write_motor_param(Motor& DM_Motor, uint8_t RID, const uint8_t data[4])
@@ -491,7 +510,8 @@ void Motor_Control::write_motor_param(Motor& DM_Motor, uint8_t RID, const uint8_
   const uint16_t id = DM_Motor.GetCanId();
   const uint8_t payload[8] = {static_cast<uint8_t>(id & 0xff), static_cast<uint8_t>((id >> 8) & 0xff),
                               0x55, RID, data[0], data[1], data[2], data[3]};
-  send_can(DM_Motor.GetChannel(), 0x7FF, payload, 8);
+  if (!send_can(DM_Motor.GetChannel(), 0x7FF, payload, 8))
+    throw std::runtime_error("write_motor_param: CAN send failed");
 }
 
 void Motor_Control::set_zero_position(Motor& DM_Motor)
@@ -502,6 +522,7 @@ void Motor_Control::set_zero_position(Motor& DM_Motor)
 
 void Motor_Control::control_mit(Motor& DM_Motor, float kp, float kd, float q, float dq, float tau)
 {
+  validate_mit(DM_Motor, kp, kd, q, dq, tau);
   const uint16_t id = DM_Motor.GetCanId();
   if(motors.find(id) == motors.end())
   {
@@ -532,6 +553,18 @@ void Motor_Control::control_mit(Motor& DM_Motor, float kp, float kd, float q, fl
   {
     throw std::runtime_error("control_mit: CAN send failed");
   }
+}
+
+void Motor_Control::validate_mit(Motor& motor, float kp, float kd, float q, float dq, float tau) const
+{
+  const auto id = motor.GetCanId();
+  if (motors.find(id) == motors.end()) throw std::runtime_error("validate_mit: motor not registered");
+  const auto limits = motor.get_limit_param();
+  (void)encode_mit_field(kp, 0, 500, 12);
+  (void)encode_mit_field(kd, 0, 5, 12);
+  (void)encode_mit_field(q, -limits.Q_MAX, limits.Q_MAX, 16);
+  (void)encode_mit_field(dq, -limits.DQ_MAX, limits.DQ_MAX, 12);
+  (void)encode_mit_field(tau, -limits.TAU_MAX, limits.TAU_MAX, 12);
 }
 
 void Motor_Control::control_pos_vel(Motor& DM_Motor, float pos, float vel)
@@ -650,13 +683,14 @@ void Motor_Control::on_rx_frame(const usb_rx_frame& frame)
   auto m = it->second;
   // The read-only 0xCC reply is not a motion sample: do not seed an MIT HOLD
   // target from its payload, even if the motor is disabled.
-  if(len >= 4 && frame.payload[0] == (m->GetCanId() & 0xff) &&
+  if(len >= 3 && frame.payload[0] == (m->GetCanId() & 0xff) &&
      frame.payload[1] == (m->GetCanId() >> 8) && frame.payload[2] == 0xCC)
   {
-    ++m->status_probe_sequence_;
+    if (len == 4 && frame.head.channel == m->GetChannel() && frame.payload[3] == 0x00)
+      ++m->status_probe_sequence_;
     return;
   }
-  if(len < 6) return;
+  if(len != 8 || frame.head.channel != m->GetChannel()) return;
   // Every delayed/interleaved register reply must bypass motion feedback.
   if(is_param_reply(frame.payload, len, m->GetCanId()))
   {
