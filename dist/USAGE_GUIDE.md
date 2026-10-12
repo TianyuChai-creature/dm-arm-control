@@ -20,7 +20,10 @@ arm.hold(reset_fault=True)     # 显式解除超时锁存，仍保持
 
 ## 安装
 
-当前 wheel 适用于 **CPython 3.12 / Linux x86_64**。其他 Python 版本或平台需要重新构建 wheel。
+当前 wheel 适用于 **CPython 3.12 / Linux x86_64**，在 Ubuntu 24.04.5 构建。
+依赖系统 `libyaml-cpp.so.0.8`、`libusb-1.0.so.0`，以及 glibc ≥ 2.38 和提供 `GLIBCXX_3.4.29` 的 C++ 运行库。
+它不是 manylinux 包，不能仅凭 Linux x86_64 标签推定其他发行版可用。
+其他 Python 版本或不满足系统库要求的平台需要重新构建 wheel。
 
 安装当前目录下的 wheel：
 
@@ -164,12 +167,16 @@ Ctrl+C／`disable()` 只触发软件停止与失能。失能失败或未确认�
 版本同时定义于 Python 包、项目元数据和 CMake，发布前必须一致。先提交源码与文档，
 取得干净源码提交，再用 `git archive` 导出该提交构建，避免混入旧扩展或工作区临时文件。
 0.1.10 的实际环境、完整命令、源码提交、验证结果及 SHA-256 见 [BUILD_MANIFEST.json](BUILD_MANIFEST.json)。
+wheel 校验和另见 [SHA256SUMS](SHA256SUMS)，在 `dist/` 执行 `sha256sum -c SHA256SUMS` 可校验两个版本。
 
 ```bash
-# 激活干净 CPython 3.12 构建环境，按 manifest 安装相同版本的构建工具。
-git archive HEAD | tar -x -C /tmp/dm-openarm-source
+# 激活干净 CPython 3.12 构建环境，完整依赖版本以 manifest 为准。
+unset PYTHONPATH PYTHONHOME
+python -I -m pip install build==1.6.1 scikit-build-core==1.1.0 nanobind==3.1.0
+mkdir /tmp/dm-openarm-source
+git archive 9bee129a70cefadbb5ca3680f76716d694799d7e | tar -x -C /tmp/dm-openarm-source
 cd /tmp/dm-openarm-source/dm_openarm
-python -m build --wheel --no-isolation --outdir /tmp/dm-openarm-artifacts \
+python -I -m build --wheel --no-isolation --outdir /tmp/dm-openarm-artifacts \
   -Cbuild-dir=/tmp/dm-openarm-wheel-0.1.10
 ```
 
