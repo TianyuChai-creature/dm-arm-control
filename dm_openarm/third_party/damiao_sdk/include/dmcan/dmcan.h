@@ -63,6 +63,9 @@ int dmcan_find_devices(dmcan_context* ctx);
 int dmcan_find_devices_with_type(dmcan_context* ctx, int device_type);
 void dmcan_show_all_devices(dmcan_context* ctx);
 bool dmcan_device_get(dmcan_context* ctx, dmcan_device_handle** out, int index);
+// The serial pointer belongs to the SDK context; copy it before context teardown.
+void dmcan_device_get_info(dmcan_device_handle* handle, int* index, int* pid, int* vid,
+                           char** serial);
 
 bool dmcan_device_open(dmcan_device_handle* handle);
 void dmcan_device_close(dmcan_device_handle* handle);

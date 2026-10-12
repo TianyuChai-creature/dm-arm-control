@@ -1,11 +1,13 @@
 # dm_openarm 使用说明
 
+当前发行版本：**0.1.10**。
+
 `dm_openarm` 是一个面向当前 5 自由度达妙机械臂的 C++17 控制库，并提供
 Python API。底层复用达妙 USB-CANFD SDK，当前版本只封装 MIT 模式。
 
 本库的典型使用方式是：
 
-- C++ 后台线程以 1 kHz 发送 MIT 控制帧。
+- 默认 guarded 启动以 250 Hz 发送 MIT 控制帧，运行时最高可指定 1000 Hz。
 - Python 只负责更新每个电机的目标位置、增益和前馈力矩。
 - 电机配置从 `config/arm.yaml` 读取。
 
@@ -21,7 +23,7 @@ Python API。底层复用达妙 USB-CANFD SDK，当前版本只封装 MIT 模式
 | nominal baud | `1000000` | bit/s |
 | data baud | `1000000` | classic CAN 下数据域不使用 |
 | 控制模式 | MIT | 当前只支持 MIT |
-| 控制循环 | `1000` | Hz，默认 1 kHz |
+| 控制循环 | `250` / `1000` | Hz，guarded 默认 250，兼容入口默认及上限 1000 |
 
 > 工位实测：CAN FD（含数据域 1M/5M）无回帧；请勿把文档默认写成 5M CANFD。
 
@@ -62,11 +64,11 @@ YAML 后不需要重新编译；修改 C++ 或 Python 包代码后才需要重�
 | `Arm` | `from_yaml(path, side=None)` | 加载双臂或指定单臂配置，不连接设备 |
 | `Arm` | `connect_passive()` / `probe_status(timeout_s=0.2)` | 打开 USB 后逐个只读查询 CAN ID，不使能电机；返回有回复的 ID |
 | `Arm` | `enable()` / `disable()` | 连接并使能 / 停止并失能 |
-| `Arm` | `enable_seeded(gains, hz=250, ...)` | 原生使能、取反馈并 seed，进入 HOLD |
+| `Arm` | `enable_seeded(gains, hz=250, ...)` | 原生 seed，首次完整保持批次提交成功后返回 |
 | `Arm` | `states()` | 读取全总线状态 |
 | `Arm` | `mit(...)` | 按 CAN ID 写单轴或批量 MIT 命令 |
-| `Arm` | `start_mit_loop(hz=1000, home=False)` | 默认以最高频率 1000 Hz 启动控制环 |
-| `Arm` | `stop_mit_loop()` | 停止控制环并发送零 MIT |
+| `Arm` | `start_mit_loop(hz=1000, home=False)` | 兼容裸入口，新对象不会自动开启 CommandGuard |
+| `Arm` | `stop_mit_loop()` | 停环、发送零 MIT 和失能帧，要求新鲜反馈确认失能 |
 | `Arm` | `hold_command()` | 保持最后实际执行的命令，前馈不衰减 |
 | `Arm` | `hold(reset_fault=False)` | 实测位置保持；可显式解除超时锁存 |
 | `Arm` | `safety_state` / `fault` / `sent_commands()` | 原生保护状态与实际下发命令 |
@@ -92,7 +94,7 @@ YAML 后不需要重新编译；修改 C++ 或 Python 包代码后才需要重�
 | `DmArm` | `send_mit_all()`、`send_zero_mit_all()`、`states()` |
 | `DmArm` | `set_zero()`、`set_zero_all()`、`config()` |
 | `MitLoopController` | `start()`、`stop()`、`running()` |
-| `MitLoopController` | `set_command()`、`set_all_commands()`、`commands()` |
+| `MitLoopController` | `set_command()`、`set_commands(map<CAN_ID, MitCommand>)`、`set_all_commands()`、`commands()` |
 | `MitLoopController` | `deadline_misses()` |
 | `MitLoopController` | `timing_stats()` |
 
@@ -168,23 +170,27 @@ Directory '.' is not installable. Neither 'setup.py' nor 'pyproject.toml' found.
 
 ## Python 快速开始
 
-基础结构建议始终使用 `try/finally`，保证异常或 `Ctrl+C` 时可以停止 MIT loop
-并失能电机：
+默认使用带 CommandGuard 的启动流程；`finally` 尝试软件停止，失败继续向调用者抛出。
 
 ```python
-from dm_openarm import Arm
+import sys
+from dm_openarm import Arm, MitCommand
 
 arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
-
+# 示例增益需替换为工位标定值，顺序与所选电机一致。
+gains = [MitCommand(kp=12.0, kd=0.6) for _ in arm.left.can_ids + arm.right.can_ids]
 try:
-    arm.enable()
-    arm.start_mit_loop(hz=1000.0, home=False)
-
-    arm.mit(0x01, kp=12.0, kd=0.6, q=0.4, dq=0.0, tau=0.0)
-
+    arm.enable_seeded(gains, hz=250.0)
+    for state in arm.states():
+        print(state.can_id, state.position)
 finally:
-    arm.stop_mit_loop()
-    arm.disable()
+    try:
+        arm.disable()
+    except Exception as exc:
+        print(f"软件停止失败（{arm.safety_state}）：{exc}", file=sys.stderr)
+        if arm.safety_state == "SHUTDOWN_UNKNOWN" or "shutdown unknown" in str(exc):
+            print("失能未确认：使用独立硬件急停并人工检查，禁止自动恢复。", file=sys.stderr)
+        raise
 ```
 
 如果脚本在仓库根目录运行，配置路径使用：
@@ -219,8 +225,10 @@ arm.enable()
 arm.disable()
 ```
 
-`arm.enable()` 会连接 USB-CANFD，并通过底层达妙 SDK 使能 YAML 中配置的所有
-电机。
+`arm.enable()` 只发送使能流程，不为新对象自动启用 CommandGuard。默认控制使用 `enable_seeded()`；
+裸入口调用者负责新鲜反馈、目标基线、更新期限与故障处置。
+
+`usb.device_index` 选择设备，`usb.serial` 核验实际所选句柄；不匹配、为空或不可读会在配置通道前拒绝连接。
 
 `arm.disable()` 会先停止 MIT loop，再失能电机。
 
@@ -288,7 +296,7 @@ for motor in stats.motors:
 Python API 已经开放设置零位：
 
 ```python
-arm.enable()
+arm.connect_passive()
 arm.set_zero(0x01, persist=True)
 arm.disable()
 ```
@@ -296,7 +304,7 @@ arm.disable()
 设置全部电机零位：
 
 ```python
-arm.enable()
+arm.connect_passive()
 arm.set_zero_all(persist=True)
 arm.disable()
 ```
@@ -315,7 +323,7 @@ arm.disable()
 默认建议使用 `persist=True`，这样零位会在后续 Python/C++ 程序和断电重启后保持。
 但不要频繁反复写 flash；只在机械零位确认正确后执行。
 
-### 启动 MIT 后台循环
+### 兼容裸入口：启动 MIT 后台循环
 
 ```python
 arm.start_mit_loop(hz=1000.0, home=False)
@@ -422,7 +430,7 @@ python python_script/mit_control_one_motor.py
 | `mit_control_one_motor.py` | 启动 MIT loop，并按脚本中的目标持续发送 MIT 命令 |
 
 `mit_control_one_motor.py` 会真实驱动机械臂。运行前确认机械臂没有碰撞风险。
-按 `Ctrl+C` 退出时，脚本会进入 `finally`，停止 MIT loop 并失能电机。
+按 `Ctrl+C` 退出时，脚本会进入 `finally` 尝试软件停止和失能；失败继续抛出，不能视为独立硬件急停。
 
 ## C++ 构建
 
@@ -519,13 +527,10 @@ int main()
 auto config = dm_openarm::load_arm_config("../config/arm.yaml");
 dm_openarm::DmArm arm(config);
 
-arm.enable();
-
   dm_openarm::MitLoopController loop(arm);
-  loop.start(1000.0);
-  loop.set_command(
-    0x01,
-    dm_openarm::MitCommand{12.0, 0.6, 0.4, 0.0, 0.0});
+  // 示例增益必须替换为工位标定值。
+  std::vector<dm_openarm::MitCommand> gains(config.motors.size(), {12.0, 0.6, 0, 0, 0});
+  loop.enable_seeded(gains, 250.0, 0.1, 0.2);
 
   std::this_thread::sleep_for(std::chrono::seconds(2));
 
@@ -552,3 +557,14 @@ target_link_libraries(my_app PRIVATE dm_openarm)
 - 初次测试建议让单个电机、小角度、低增益运行。
 - 任何会运动机械臂的脚本都应使用 `try/finally`，确保退出时执行
   `stop_mit_loop()` 和 `disable()`。
+
+
+`mit(dict)`／`Limb.mit(dict)` 在 C++ 锁内原子合并到当前有效命令表；未更新轴保留 seed 或保持基线，
+包括当前已衰减的前馈。`set_all_commands()` 仍完整替换命令表。输入验证失败不修改命令表或接受序号。
+
+`hold()`／`hold_command()` 成功返回表示对应的完整保持批次已由发送接口提交；保持确认等待期间拒绝
+运动更新。启动确认期限为 3 秒，保持确认期限为 `feedback_timeout`；底层调用仍须返回才能完成清理。
+`HOLD` 是保护逻辑状态，机械稳定需要另行验证。Ctrl+C／`disable()` 不能替代独立硬件急停。
+停止失败时保留异常；`SHUTDOWN_UNKNOWN`／`shutdown unknown` 表示失能未确认，必须人工处置，禁止自动恢复。
+
+0.1.10 的源码提交、构建环境、验证记录和 wheel hash 见 [`../dist/BUILD_MANIFEST.json`](../dist/BUILD_MANIFEST.json)。

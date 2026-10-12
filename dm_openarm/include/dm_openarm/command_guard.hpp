@@ -45,10 +45,12 @@ public:
   }
   void hold(const std::vector<MotorState>& states, const std::vector<MitCommand>& commands,
             double now, const std::string& reason = "") {
+    if (states.size() != gains.size() || commands.size() != gains.size())
+      throw std::runtime_error("feedback/command count mismatch");
+    for (const auto& s : states)
+      if (!fresh(s, feedback_timeout)) throw std::runtime_error("feedback invalid during hold");
     preserve_command = false;
-    if (states.size() != gains.size()) throw std::runtime_error("feedback count mismatch");
     for (std::size_t i=0; i<states.size(); ++i) {
-      if (!fresh(states[i], feedback_timeout)) throw std::runtime_error("feedback invalid during hold");
       holding[i] = gains[i]; holding[i].q = states[i].position;
       holding[i].dq = 0; holding[i].tau = commands[i].tau;
     }

@@ -61,6 +61,10 @@ int main() {
   assert(held[0].q == 1 && held[0].kp == 60 && held[0].tau == 0.5);
   assert(held[0].kp*(held[0].q-state.position)+held[0].tau ==
          target[0].kp*(target[0].q-state.position)+target[0].tau);
+  auto invalid_hold = feedback; invalid_hold[1].last_rx_age_s=1;
+  invalid_hold[0].position=9;
+  bool invalid=false;try{guard.hold(invalid_hold,target,.02);}catch(const std::runtime_error&){invalid=true;}
+  assert(invalid && guard.holding[0].q==1 && guard.preserve_command);
   auto stale = feedback; stale[0].last_rx_age_s=1;
   bool lost=false;
   try { guard.step(stale, gains, 10); } catch (...) { lost=true; }

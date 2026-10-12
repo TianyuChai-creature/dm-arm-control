@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(dm_openarm VERSION 0.1.8 LANGUAGES CXX)
+project(dm_openarm VERSION 0.1.10 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -11,6 +11,9 @@ pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
 find_package(yaml-cpp REQUIRED)
 
 include(CTest)
+if(BUILD_TESTING)
+  add_compile_options(-UNDEBUG)
+endif()
 
 option(DM_OPENARM_BUILD_PYTHON "Build Python bindings" OFF)
 option(DM_OPENARM_BUILD_EXAMPLES "Build dm_openarm examples" ON)

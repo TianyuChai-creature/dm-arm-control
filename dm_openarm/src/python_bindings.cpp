@@ -6,6 +6,7 @@
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
+#include <nanobind/stl/map.h>
 #include <nanobind/stl/vector.h>
 
 #include <filesystem>
@@ -135,9 +136,12 @@ NB_MODULE(_core, m)
          nb::arg("gains"), nb::arg("hz")=250.0, nb::arg("command_timeout")=0.1, nb::arg("feedback_timeout")=0.2,
          nb::call_guard<nb::gil_scoped_release>())
     .def("start_seeded", &dm_openarm::MitLoopController::start_seeded,
-         nb::arg("gains"), nb::arg("hz")=250.0, nb::arg("command_timeout")=0.1, nb::arg("feedback_timeout")=0.2)
-    .def("hold", &dm_openarm::MitLoopController::hold, nb::arg("reset_fault")=false)
-    .def("hold_command", &dm_openarm::MitLoopController::hold_command)
+         nb::arg("gains"), nb::arg("hz")=250.0, nb::arg("command_timeout")=0.1, nb::arg("feedback_timeout")=0.2,
+         nb::call_guard<nb::gil_scoped_release>())
+    .def("hold", &dm_openarm::MitLoopController::hold, nb::arg("reset_fault")=false,
+         nb::call_guard<nb::gil_scoped_release>())
+    .def("hold_command", &dm_openarm::MitLoopController::hold_command,
+         nb::call_guard<nb::gil_scoped_release>())
     .def("safety_state", &dm_openarm::MitLoopController::safety_state)
     .def("fault", &dm_openarm::MitLoopController::fault)
     .def("accepted_sequence", &dm_openarm::MitLoopController::accepted_sequence)
@@ -150,11 +154,15 @@ NB_MODULE(_core, m)
       "set_command",
       &dm_openarm::MitLoopController::set_command,
       nb::arg("can_id"),
-      nb::arg("command"))
+      nb::arg("command"), nb::call_guard<nb::gil_scoped_release>())
+    .def(
+      "set_commands",
+      &dm_openarm::MitLoopController::set_commands,
+      nb::arg("commands"), nb::call_guard<nb::gil_scoped_release>())
     .def(
       "set_all_commands",
       &dm_openarm::MitLoopController::set_all_commands,
-      nb::arg("commands"))
+      nb::arg("commands"), nb::call_guard<nb::gil_scoped_release>())
     .def("commands", &dm_openarm::MitLoopController::commands)
     .def("sent_commands", &dm_openarm::MitLoopController::sent_commands);
 }

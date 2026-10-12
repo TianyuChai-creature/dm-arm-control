@@ -6,8 +6,11 @@
 #include "unit/sliding_rate.h"
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <exception>
+#include <map>
 #include <mutex>
 #include <thread>
 #include <vector>
@@ -37,6 +40,7 @@ public:
   TimingStats timing_stats() const;
 
   void set_command(std::uint16_t can_id, MitCommand command);
+  void set_commands(const std::map<std::uint16_t, MitCommand>& commands);
   void set_all_commands(std::vector<MitCommand> commands);
   std::vector<MitCommand> commands() const;
   std::vector<MitCommand> sent_commands() const;
@@ -44,11 +48,16 @@ public:
 private:
   std::size_t motor_index(std::uint16_t can_id) const;
   void worker_loop(double hz);
+  void wait_for_hold(std::unique_lock<std::mutex>& lock, std::uint64_t request);
 
   CommandGuard guard_;
   DmArm& arm_;
   std::vector<std::uint16_t> can_ids_;
   mutable std::mutex mutex_;
+  std::condition_variable changed_;
+  std::uint64_t hold_request_{0}, hold_sent_{0};
+  std::chrono::steady_clock::time_point hold_deadline_;
+  std::mutex stop_mutex_;
   std::vector<MitCommand> commands_;
   std::vector<MitCommand> sent_commands_;
   std::atomic<bool> running_{false};

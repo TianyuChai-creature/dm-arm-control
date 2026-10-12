@@ -1,19 +1,28 @@
 """Minimal MIT control example (hardware)."""
-from dm_openarm import Arm
+import sys
+import time
+
+from dm_openarm import Arm, MitCommand
 
 
 def main() -> None:
     arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
+    # Replace these illustrative gains with values calibrated for your station.
+    gains = [MitCommand(kp=12.0, kd=0.6) for _ in arm.left.can_ids + arm.right.can_ids]
 
     try:
-        arm.enable()
-        # Seed commands at current pose, then start without homing.
-        for s in arm.states():
-            arm.mit(s.can_id, kp=12.0, kd=0.6, q=s.position, dq=0.0, tau=0.0)
-        arm.start_mit_loop(hz=1000.0, home=False)
+        arm.enable_seeded(gains, hz=250.0)
         time.sleep(2.0)
+    except KeyboardInterrupt:
+        print("Software stop requested; this is not a hardware emergency stop.")
     finally:
-        arm.disable()
+        try:
+            arm.disable()
+        except Exception as exc:
+            print(f"Software stop failed ({arm.safety_state}): {exc}", file=sys.stderr)
+            if arm.safety_state == "SHUTDOWN_UNKNOWN" or "shutdown unknown" in str(exc):
+                print("Disable unconfirmed: use the independent hardware stop and inspect before recovery.", file=sys.stderr)
+            raise
 
 
 if __name__ == "__main__":

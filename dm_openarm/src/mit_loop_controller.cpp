@@ -92,21 +92,28 @@ void MitLoopController::enable_seeded(std::vector<MitCommand> gains, double hz,
   try {
     arm_.enable();
     start_seeded(std::move(gains), hz, command_timeout, feedback_timeout);
-    const double deadline = monotonic_seconds() + 3.0;
-    while (safety_state() == "STARTING" && monotonic_seconds() < deadline)
-      std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    if (safety_state() != "HOLD") throw std::runtime_error("native startup failed: " + fault());
+    std::unique_lock<std::mutex> lock(mutex_);
+    const bool confirmed = changed_.wait_until(lock, hold_deadline_, [this] {
+      return hold_sent_ >= 1 || !running_;
+    });
+    if (!confirmed || !running_ || guard_.state != "HOLD" || hold_sent_ < 1)
+      throw std::runtime_error("native startup failed: " +
+        (guard_.fault.empty() ? "first hold batch unconfirmed" : guard_.fault));
   } catch (...) {
     const auto original = std::current_exception();
-    try { stop(); } catch (...) {}
+    std::string stop_error;
+    try { stop(); } catch (...) { stop_error = exception_text(std::current_exception()); }
     try { arm_.disable(); }
     catch (...) {
       const auto message = exception_text(original) + "; shutdown unknown: " +
-                           exception_text(std::current_exception());
+                           exception_text(std::current_exception()) +
+                           (stop_error.empty() ? "" : "; loop stop failed: " + stop_error);
       { std::lock_guard<std::mutex> lock(mutex_);
         guard_.state = "SHUTDOWN_UNKNOWN"; guard_.fault = message; guard_.latched = true; }
       throw std::runtime_error(message);
     }
+    if (!stop_error.empty())
+      throw std::runtime_error(exception_text(original) + "; loop stop failed: " + stop_error);
     std::rethrow_exception(original);
   }
 }
@@ -120,24 +127,49 @@ void MitLoopController::start_seeded(std::vector<MitCommand> gains, double hz,
     std::lock_guard<std::mutex> lock(mutex_);
     guard_.command_timeout = command_timeout; guard_.feedback_timeout = feedback_timeout;
     guard_.start(std::move(gains), monotonic_seconds());
+    commands_ = guard_.holding;
+    hold_request_ = 1; hold_sent_ = 0;
+    hold_deadline_ = std::chrono::steady_clock::now() + std::chrono::seconds(3);
   }
   start(hz);
 }
 std::vector<MitCommand> MitLoopController::hold_command() {
-  auto states = arm_.states();
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::unique_lock<std::mutex> lock(mutex_);
   if (!running_) throw std::runtime_error("MIT loop not running");
-  guard_.hold_command(states, sent_commands_, monotonic_seconds());
-  return guard_.holding;
+  if (hold_request_ != hold_sent_) throw std::runtime_error("hold confirmation pending");
+  guard_.hold_command(arm_.states(), sent_commands_, monotonic_seconds());
+  commands_ = guard_.holding;
+  const auto result = commands_;
+  wait_for_hold(lock, ++hold_request_);
+  return result;
 }
 
 void MitLoopController::hold(bool reset_fault) {
-  auto states = arm_.states();
-  std::lock_guard<std::mutex> lock(mutex_);
+  std::unique_lock<std::mutex> lock(mutex_);
   if (!running_ || !guard_.enabled) throw std::runtime_error("guarded MIT loop not running");
   if (guard_.state == "STARTING") throw std::runtime_error("MIT startup incomplete");
-  guard_.hold(states, sent_commands_, monotonic_seconds(), guard_.latched ? guard_.fault : "");
+  if (hold_request_ != hold_sent_) throw std::runtime_error("hold confirmation pending");
+  guard_.hold(arm_.states(), sent_commands_, monotonic_seconds(), guard_.latched ? guard_.fault : "");
   if (reset_fault) { guard_.latched = false; guard_.fault.clear(); guard_.state = "HOLD"; }
+  commands_ = guard_.holding;
+  wait_for_hold(lock, ++hold_request_);
+}
+
+void MitLoopController::wait_for_hold(std::unique_lock<std::mutex>& lock, std::uint64_t request) {
+  hold_deadline_ = std::chrono::steady_clock::now() +
+    std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(guard_.feedback_timeout));
+  changed_.notify_all();
+  const bool confirmed = changed_.wait_until(lock, hold_deadline_,
+    [this, request] { return hold_sent_ >= request || !running_; });
+  if (confirmed && running_ && hold_sent_ >= request) return;
+  const auto message = guard_.fault.empty() ? "hold batch unconfirmed" : guard_.fault;
+  if (!confirmed && running_) {
+    guard_.state = "FAULT"; guard_.fault = message; guard_.latched = true;
+  }
+  lock.unlock();
+  try { stop(); }
+  catch (...) { throw std::runtime_error(message + "; stop failed: " + exception_text(std::current_exception())); }
+  throw std::runtime_error(message);
 }
 std::string MitLoopController::safety_state() const { std::lock_guard<std::mutex> lock(mutex_); return guard_.state; }
 std::string MitLoopController::fault() const { std::lock_guard<std::mutex> lock(mutex_); return guard_.fault; }
@@ -146,7 +178,9 @@ std::uint64_t MitLoopController::sent_sequence() const { std::lock_guard<std::mu
 
 void MitLoopController::stop()
 {
+  std::lock_guard<std::mutex> stop_lock(stop_mutex_);
   const bool was_running = running_.exchange(false);
+  changed_.notify_all();
   if(worker_.joinable())
   {
     worker_.join();
@@ -260,11 +294,19 @@ TimingStats MitLoopController::timing_stats() const
 
 void MitLoopController::set_command(std::uint16_t can_id, MitCommand command)
 {
-  const auto index = motor_index(can_id);
+  set_commands({{can_id, command}});
+}
+
+void MitLoopController::set_commands(const std::map<std::uint16_t, MitCommand>& commands)
+{
   std::lock_guard<std::mutex> lock(mutex_);
-  auto updated = commands_; updated[index] = command;
+  if (hold_request_ != hold_sent_) throw std::runtime_error("hold confirmation pending");
+  const auto now = monotonic_seconds();
+  auto updated = (guard_.state == "HOLD" || guard_.state == "FAULT_HOLD")
+    ? guard_.step(arm_.states(), commands_, now) : commands_;
+  for (const auto& entry : commands) updated[motor_index(entry.first)] = entry.second;
   arm_.validate_mit_all(updated);
-  guard_.accept(updated, monotonic_seconds());
+  guard_.accept(updated, now);
   commands_ = std::move(updated);
 }
 
@@ -276,6 +318,7 @@ void MitLoopController::set_all_commands(std::vector<MitCommand> commands)
   }
 
   std::lock_guard<std::mutex> lock(mutex_);
+  if (hold_request_ != hold_sent_) throw std::runtime_error("hold confirmation pending");
   arm_.validate_mit_all(commands);
   guard_.accept(commands, monotonic_seconds());
   commands_ = std::move(commands);
@@ -314,23 +357,26 @@ void MitLoopController::worker_loop(double hz)
   {
     while(running_)
     {
-      const auto states = guard_.enabled ? arm_.states() : std::vector<MotorState>{};
-      std::vector<MitCommand> snapshot;
-      std::uint64_t sending_seq = 0;
       {
+        // Keep a snapshot and its complete send on the same side of a hold request.
         std::lock_guard<std::mutex> lock(mutex_);
-        snapshot = guard_.step(states, commands_, monotonic_seconds());
-        sending_seq = (!guard_.enabled || guard_.state == "ACTIVE") ? guard_.accepted_seq : 0;
-      }
-
-      arm_.send_mit_all(snapshot);
-      const auto sent_at = clock::now();
-      {
-        std::lock_guard<std::mutex> lock(mutex_);
+        if (!running_) break;
+        const auto states = guard_.enabled ? arm_.states() : std::vector<MotorState>{};
+        const auto snapshot = guard_.step(states, commands_, monotonic_seconds());
+        const bool holding = guard_.enabled &&
+          (guard_.state == "HOLD" || guard_.state == "FAULT_HOLD");
+        if (guard_.enabled && guard_.state != "ACTIVE") commands_ = snapshot;
+        const auto sending_seq = (!guard_.enabled || guard_.state == "ACTIVE") ? guard_.accepted_seq : 0;
+        arm_.send_mit_all(snapshot);
+        const auto sent_at = clock::now();
+        if (holding && hold_request_ != hold_sent_ && sent_at > hold_deadline_)
+          throw std::runtime_error("hold confirmation timeout after batch submission");
         tx_rate_.record(sent_at);
         ++tx_cycles_;
         guard_.sent_seq = sending_seq;
         sent_commands_ = snapshot;
+        if (holding) hold_sent_ = hold_request_;
+        changed_.notify_all();
       }
 
       next_tick += std::chrono::duration_cast<clock::duration>(period);
@@ -340,7 +386,10 @@ void MitLoopController::worker_loop(double hz)
         ++deadline_misses_;
         next_tick = now + std::chrono::duration_cast<clock::duration>(period);
       }
-      std::this_thread::sleep_until(next_tick);
+      std::unique_lock<std::mutex> lock(mutex_);
+      changed_.wait_until(lock, next_tick, [this] {
+        return !running_ || (guard_.state != "STARTING" && hold_request_ != hold_sent_);
+      });
     }
   }
   catch(...)
@@ -370,9 +419,13 @@ void MitLoopController::worker_loop(double hz)
       catch (...) { guard_.fault = "MIT worker failure"; }
       if (!cleanup_error.empty()) guard_.fault += "; " + cleanup_error;
     }
-    worker_exception_ = cleanup_error.empty() ? exception :
-      std::make_exception_ptr(std::runtime_error(exception_text(exception) + "; " + cleanup_error));
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      worker_exception_ = cleanup_error.empty() ? exception :
+        std::make_exception_ptr(std::runtime_error(exception_text(exception) + "; " + cleanup_error));
+    }
     arm_.set_loop_active(false);
+    changed_.notify_all();
   }
 }
 

@@ -1,11 +1,7 @@
 """Offline tests for left/right Limb API (no hardware)."""
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "python"))
+from unittest.mock import MagicMock
 
 from dm_openarm.limb import Limb
 
@@ -25,4 +21,15 @@ def test_limb_rejects_foreign_can() -> None:
 
 if __name__ == "__main__":
     test_limb_rejects_foreign_can()
+    arm = MagicMock()
+    limb = Limb(arm, "left", [0, 1], ["a", "b"])
+    update = {0: object(), 1: object()}
+    limb.mit(update)
+    arm.mit.assert_called_once_with(update)
+    try:
+        limb.mit({0: object(), 5: object()})
+        assert False, "expected foreign CAN rejection"
+    except ValueError:
+        pass
+    assert arm.mit.call_count == 1
     print("test_limb_api OK")

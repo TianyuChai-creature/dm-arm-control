@@ -98,7 +98,7 @@ class Arm:
             raise loop_error
 
     def enable_seeded(self, gains, *, hz=250.0, command_timeout=0.1, feedback_timeout=0.2):
-        """Enable, acquire feedback and seed in native code; returns in HOLD or raises."""
+        """Enable and seed; return after the first complete hold batch is submitted."""
         self._loop.enable_seeded(gains, hz, command_timeout, feedback_timeout)
 
     def start_seeded(self, gains, *, hz=250.0, command_timeout=0.1, feedback_timeout=0.2):
@@ -122,10 +122,11 @@ class Arm:
         return self._loop.sent_sequence()
 
     def hold(self, *, reset_fault=False):
+        """Return after a fresh-position hold batch is submitted, or raise."""
         self._loop.hold(reset_fault)
 
     def hold_command(self):
-        """Preserve last executed stationary position command, including feedforward."""
+        """Submit and confirm the last stationary command, including feedforward."""
         return self._loop.hold_command()
 
     def states(self):
@@ -209,14 +210,11 @@ class Arm:
     ) -> None:
         """Bus-level MIT (any can_id). Prefer ``arm.left.mit`` / ``arm.right.mit``."""
         if isinstance(target, dict):
-            # Validate all IDs before one atomic command-table update.
+            # Keep the Python ID check; merge with the current table under the native lock.
             ids = [int(m.can_id) for m in self._config.motors]
             if any(int(cid) not in ids for cid in target):
                 raise ValueError("unknown motor CAN ID")
-            commands = self._loop.commands()
-            for can_id, cmd in target.items():
-                commands[ids.index(int(can_id))] = cmd
-            self._loop.set_all_commands(commands)
+            self._loop.set_commands(target)
         else:
             self._loop.set_command(
                 target,

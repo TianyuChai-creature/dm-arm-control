@@ -31,11 +31,12 @@ python python_script/scan_motors_online.py
 构建发布 wheel：
 
 ```bash
-uv build --wheel --out-dir dist --no-create-gitignore dm_openarm
+python -m build --wheel --no-isolation --outdir dist dm_openarm
 ```
 
-生成的 wheel 和安装使用说明位于 `dist/`。当前 SDK 默认控制频率固定为最高默认频率
-`1000 Hz`，不从 YAML 读取控制频率；需要降频时在 `start_mit_loop(hz=...)` 中显式指定。
+当前版本 **0.1.10**。wheel、构建记录和安装说明位于 `dist/`；可追溯构建步骤见
+[`dist/USAGE_GUIDE.md`](dist/USAGE_GUIDE.md#构建与来源记录)。guarded 启动默认 **250 Hz**，
+兼容裸入口默认 1000 Hz；最高支持 1000 Hz，频率均由运行时参数指定。
 
 ---
 
@@ -58,18 +59,18 @@ uv build --wheel --out-dir dist --no-create-gitignore dm_openarm
 
 ```
 Python Arm
-├── 设备级：enable / disable / start_mit_loop / states / mit / timing_stats
+├── 设备级：enable_seeded / hold / disable / states / mit / timing_stats
 ├── arm.left  (Limb)  → mit / set_zero …
 └── arm.right (Limb)  → 同上
         │
         ▼
-C++ MitLoopController @ 1 kHz
+C++ MitLoopController @ 250 Hz guarded（最高 1 kHz）
   tau_sent = tau_cmd
 ```
 
 - **设备级**：开设备、共享 1 kHz 环（两侧一起进 loop）。  
 - **侧级 `Limb`**：按侧限制 CAN ID 并提供基础 MIT/设零操作。
-- 双臂务必 `start_mit_loop(home=False)`，避免全体硬回零惊吓。
+- 默认使用 `enable_seeded()` 从新鲜反馈保持当前位置，不自动回零。
 
 ---
 
@@ -81,8 +82,8 @@ C++ MitLoopController @ 1 kHz
 |------|------|
 | `Arm.from_yaml(path, side=None)` | 加载双臂或指定单臂配置，不连设备 |
 | `enable()` / `disable()` | 连接使能 / 停 loop + 失能 |
-| `enable_seeded(gains, hz=250, ...)` | 原生使能、取反馈并 seed，进入 HOLD |
-| `start_mit_loop(hz=1000, home=False)` | 默认以最高频率 1000 Hz 启动控制环 |
+| `enable_seeded(gains, hz=250, ...)` | guarded 启动，首次完整保持批次提交成功后返回 |
+| `start_mit_loop(hz=1000, home=False)` | 兼容入口；新对象不会自动启用 CommandGuard |
 | `stop_mit_loop()` | 停环 |
 | `hold_command()` | 保持最后实际执行的命令，前馈不衰减 |
 | `hold(reset_fault=False)` | 实测位置保持；`reset_fault=True` 解除超时锁存 |
@@ -92,7 +93,7 @@ C++ MitLoopController @ 1 kHz
 | `deadline_misses` | MIT 循环累计超期次数 |
 | `timing_stats()` | 1 秒窗口的控制下发频率和逐电机反馈频率 |
 | `mit(can_id, kp=, kd=, q=, dq=, tau=)` | 写任意轴 MIT（底层） |
-| `mit({can_id: MitCommand(...), ...})` | 批量，一次原子替换命令表 |
+| `mit({can_id: MitCommand(...), ...})` | 锁内原子合并局部命令，保留未更新轴的有效基线 |
 | `set_zero` / `set_zero_all` | 当前位置写零（可 `persist` 写 flash） |
 | `left` / `right` | `Limb` 对象 |
 
@@ -128,28 +129,31 @@ python python_script/scan_motors_online.py
 ### 2. 最小控制（读状态 + 保持）
 
 ```python
-from dm_openarm import Arm
+import sys
+from dm_openarm import Arm, MitCommand
 
 arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
-arm.enable()
-
-# 先 seed 当前角，再开环（勿 home=True）
-for s in arm.states():
-    arm.mit(int(s.can_id), kp=12.0, kd=0.6, q=float(s.position), dq=0.0, tau=0.0)
-
-arm.start_mit_loop(hz=1000.0, home=False)
-
-for s in arm.left.states():
-    print(f"L 0x{s.can_id:02X} q={s.position:+.3f}")
-
-arm.disable()
+# 示例增益需替换为工位标定值，顺序与所选电机一致。
+gains = [MitCommand(kp=12.0, kd=0.6) for _ in arm.left.can_ids + arm.right.can_ids]
+try:
+    arm.enable_seeded(gains, hz=250.0)
+    for state in arm.states():
+        print(state.can_id, state.position)
+finally:
+    try:
+        arm.disable()
+    except Exception as exc:
+        print(f"软件停止失败（{arm.safety_state}）：{exc}", file=sys.stderr)
+        if arm.safety_state == "SHUTDOWN_UNKNOWN" or "shutdown unknown" in str(exc):
+            print("失能未确认：使用独立硬件急停并人工检查，禁止自动恢复。", file=sys.stderr)
+        raise
 ```
 
 ### 3. 当前位置设为零位（写 flash）
 
 ```python
 arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
-arm.enable()
+arm.connect_passive()  # 需先取得新鲜 status-0、低速反馈；不满足条件会拒绝设零。
 arm.set_zero_all(persist=True)   # 左右全部 10 轴
 # 或 arm.left.set_zero_all() / arm.right.set_zero_all()
 arm.disable()
@@ -206,8 +210,10 @@ cmake .. && make -j$(nproc) && ctest --output-on-failure
 
 ## 安全注意
 
-1. 双臂 **`home=False`**，先 seed 再开 loop。  
-2. 上层应用负责轨迹、动力学和前馈力矩。
-3. 急停：Ctrl+C / `disable()`。
+1. 默认 guarded 启动；保持增益需按工位标定，上层应用负责轨迹及前馈。
+2. `hold()` / `hold_command()` 成功返回表示完整保持批次已由发送接口提交；`HOLD` 是保护逻辑状态，机械稳定另需反馈验收。
+3. Ctrl+C / `disable()` 是软件停止与失能流程，不能替代独立硬件急停。
+4. `SHUTDOWN_UNKNOWN` 或失能未确认时报告异常、使用独立硬件处置并人工检查，禁止自动恢复。
+5. `usb.device_index` 选择适配器，`usb.serial` 核验所选句柄的身份；索引与 SN 不匹配会拒绝连接，不自动换设备。
 
 更底层的包说明见 [`dm_openarm/README.md`](dm_openarm/README.md)；工位链路笔记见 [`resources/u2canfd/`](resources/u2canfd/)。

@@ -1,6 +1,7 @@
 #include "protocol/damiao.h"
 
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <thread>
@@ -209,6 +210,20 @@ Motor_Control::Motor_Control(uint32_t nom_baud, uint32_t dat_baud, std::string s
   {
     close_device();
     throw std::runtime_error("Motor_Control: dmcan_device_get failed");
+  }
+  int selected_index = -1;
+  char* serial = nullptr;
+  dmcan_device_get_info(device_, &selected_index, nullptr, nullptr, &serial);
+  const auto serial_length = serial ? strnlen(serial, 256) : 0;
+  const std::string actual = serial ? std::string(serial, serial_length) : "";
+  if(sn_.empty() || !serial || serial_length == 0 || serial_length == 256 || actual != sn_)
+  {
+    const auto message = "Motor_Control: USB identity mismatch at device_index=" +
+      std::to_string(device_index) + "; expected SN='" + sn_ + "'; actual SN='" +
+      (!serial ? "[unavailable]" : actual.empty() ? "[empty]" : actual) + "'";
+    device_ = nullptr; // No channels were configured on this unverified handle.
+    close_device();
+    throw std::runtime_error(message);
   }
   if(!dmcan_device_open(device_))
   {
