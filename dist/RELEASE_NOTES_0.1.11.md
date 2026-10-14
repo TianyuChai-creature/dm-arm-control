@@ -23,3 +23,5 @@ real-Teleop is pinned to the new wheel and hash and its environment is synchroni
 ## Validation scope
 
 Native fake-transport and installed-wheel API checks cover the retained contract. Physical hold stability, feedback timing after disable, bus load, emergency stop and Flash-zero calibration require separate hardware acceptance; no motor is actuated during this release workflow.
+
+Offline release verification: CTest 6/6; two installed-wheel Python API suites; real-Teleop migration checks 40/40. Installed package files and wheel RECORD hashes match.
