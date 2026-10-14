@@ -12,7 +12,7 @@ from ._core import (
 from .arm import Arm
 from .limb import Limb
 
-__version__ = "0.1.10"
+__version__ = "0.1.11"
 
 __all__ = [
     "Arm",

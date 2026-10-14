@@ -1,6 +1,6 @@
 # dm_openarm SDK 使用指南
 
-当前发行版本：**0.1.10**。带原生执行保护的用法：
+当前发行版本：**0.1.11**。带原生执行保护的用法：
 
 ```python
 arm.enable_seeded(gains, hz=250, command_timeout=0.1, feedback_timeout=0.2)
@@ -28,7 +28,7 @@ arm.hold(reset_fault=True)     # 显式解除超时锁存，仍保持
 安装当前目录下的 wheel：
 
 ```bash
-python -m pip install dm_openarm-0.1.10-cp312-cp312-linux_x86_64.whl
+python -m pip install dm_openarm-0.1.11-cp312-cp312-linux_x86_64.whl
 ```
 
 guarded 启动默认 **250 Hz**，兼容入口默认 1000 Hz，最高支持 1000 Hz。
@@ -166,7 +166,7 @@ Ctrl+C／`disable()` 只触发软件停止与失能。失能失败或未确认�
 
 版本同时定义于 Python 包、项目元数据和 CMake，发布前必须一致。先提交源码与文档，
 取得干净源码提交，再用 `git archive` 导出该提交构建，避免混入旧扩展或工作区临时文件。
-0.1.10 的实际环境、完整命令、源码提交、验证结果及 SHA-256 见 [BUILD_MANIFEST.json](BUILD_MANIFEST.json)。
+0.1.11 的实际环境、完整命令、源码提交、验证结果及 SHA-256 见 [BUILD_MANIFEST.json](BUILD_MANIFEST.json)。
 wheel 校验和另见 [SHA256SUMS](SHA256SUMS)，在 `dist/` 执行 `sha256sum -c SHA256SUMS` 可校验两个版本。
 
 ```bash
@@ -177,7 +177,7 @@ mkdir /tmp/dm-openarm-source
 git archive 9bee129a70cefadbb5ca3680f76716d694799d7e | tar -x -C /tmp/dm-openarm-source
 cd /tmp/dm-openarm-source/dm_openarm
 python -I -m build --wheel --no-isolation --outdir /tmp/dm-openarm-artifacts \
-  -Cbuild-dir=/tmp/dm-openarm-wheel-0.1.10
+  -Cbuild-dir=/tmp/dm-openarm-wheel-0.1.11
 ```
 
 构建目录须为空并事先创建导出目录。记录编译器、系统库、Python 构建依赖、SDK 输入文件与

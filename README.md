@@ -34,7 +34,7 @@ python python_script/scan_motors_online.py
 python -m build --wheel --no-isolation --outdir dist dm_openarm
 ```
 
-当前版本 **0.1.10**。wheel、构建记录和安装说明位于 `dist/`；可追溯构建步骤见
+当前版本 **0.1.11**。wheel、构建记录和安装说明位于 `dist/`；可追溯构建步骤见
 [`dist/USAGE_GUIDE.md`](dist/USAGE_GUIDE.md#构建与来源记录)。guarded 启动默认 **250 Hz**，
 兼容裸入口默认 1000 Hz；最高支持 1000 Hz，频率均由运行时参数指定。
 

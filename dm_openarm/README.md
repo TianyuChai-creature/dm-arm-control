@@ -1,6 +1,6 @@
 # dm_openarm 使用说明
 
-当前发行版本：**0.1.10**。
+当前发行版本：**0.1.11**。
 
 `dm_openarm` 是一个面向当前 5 自由度达妙机械臂的 C++17 控制库，并提供
 Python API。底层复用达妙 USB-CANFD SDK，当前版本只封装 MIT 模式。
@@ -567,4 +567,4 @@ target_link_libraries(my_app PRIVATE dm_openarm)
 `HOLD` 是保护逻辑状态，机械稳定需要另行验证。Ctrl+C／`disable()` 不能替代独立硬件急停。
 停止失败时保留异常；`SHUTDOWN_UNKNOWN`／`shutdown unknown` 表示失能未确认，必须人工处置，禁止自动恢复。
 
-0.1.10 的源码提交、构建环境、验证记录和 wheel hash 见 [`../dist/BUILD_MANIFEST.json`](../dist/BUILD_MANIFEST.json)。
+0.1.11 的源码提交、构建环境、验证记录和 wheel hash 见 [`../dist/BUILD_MANIFEST.json`](../dist/BUILD_MANIFEST.json)。
