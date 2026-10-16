@@ -17,7 +17,7 @@
 ```bash
 # 依赖（Debian/Ubuntu）
 sudo apt install -y build-essential cmake pkg-config libyaml-cpp-dev libusb-1.0-0-dev
-python3 -m venv .venv && source .venv/bin/activate
+python3.13 -m venv .venv && source .venv/bin/activate
 pip install -e ./dm_openarm
 
 # 扫描 10 轴是否在线
@@ -34,7 +34,7 @@ python python_script/scan_motors_online.py
 python -m build --wheel --no-isolation --outdir dist dm_openarm
 ```
 
-当前版本 **0.1.11**。wheel、构建记录和安装说明位于 `dist/`；可追溯构建步骤见
+当前版本 **0.1.12**，发布 wheel 适用于 **CPython 3.13 / Linux x86_64**。wheel、构建记录和安装说明位于 `dist/`；可追溯构建步骤见
 [`dist/USAGE_GUIDE.md`](dist/USAGE_GUIDE.md#构建与来源记录)。guarded 启动默认 **250 Hz**，
 兼容裸入口默认 1000 Hz；最高支持 1000 Hz，频率均由运行时参数指定。
 
@@ -50,7 +50,7 @@ python -m build --wheel --no-isolation --outdir dist dm_openarm
 
 | 侧 | CAN | MST | 顺序 | 型号 |
 |----|-----|-----|------|------|
-| **left** | 0x00…0x04 | 0x10…0x14 | 配置向量：腕远端 → 肩 | 腕 DM4310 ×3，肘/肩 DM8009 |
+| **left** | 0x00…0x04 | 0x10…0x14 | 配置向量：腕远端 → 肩 | J1/J2 DM8009，J3–J5 DM4340P |
 | **right** | 0x05…0x09 | 0x15…0x19 | 同上 | 同上 |
 
 ---
@@ -95,6 +95,8 @@ C++ MitLoopController @ 250 Hz guarded（最高 1 kHz）
 | `mit(can_id, kp=, kd=, q=, dq=, tau=)` | 写任意轴 MIT（底层） |
 | `mit({can_id: MitCommand(...), ...})` | 锁内原子合并局部命令，保留未更新轴的有效基线 |
 | `set_zero` / `set_zero_all` | 当前位置写零（可 `persist` 写 flash） |
+| `calibrate_zero(kp=..., kd=...)` / `calibrate_zero(gains=...)` | 双臂并行逐轴寻零，十轴就位后集中保存；默认 CAN 0/1/5/6 kp=120，其余 kp=60，kd=5 |
+| `calibration_status()` / `cancel_zero_calibration()` | 查询部分结果 / 请求取消 |
 | `left` / `right` | `Limb` 对象 |
 
 `MotorState` 还提供 `feedback_hz`、`last_rx_age_s`、`rx_sequence`、`error_code` 和
@@ -217,3 +219,5 @@ cmake .. && make -j$(nproc) && ctest --output-on-failure
 5. `usb.device_index` 选择适配器，`usb.serial` 核验所选句柄的身份；索引与 SN 不匹配会拒绝连接，不自动换设备。
 
 更底层的包说明见 [`dm_openarm/README.md`](dm_openarm/README.md)；工位链路笔记见 [`resources/u2canfd/`](resources/u2canfd/)。
+
+自动寻零的流程、返回报告及验收限制见 [Python 双臂自动零位标定](dm_openarm/README.md#python-双臂自动零位标定)。

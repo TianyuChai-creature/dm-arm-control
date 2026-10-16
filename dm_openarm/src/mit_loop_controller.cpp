@@ -3,6 +3,7 @@
 #include <chrono>
 #include <stdexcept>
 #include <utility>
+#include <set>
 
 namespace dm_openarm {
 namespace {
@@ -44,7 +45,13 @@ MitLoopController::~MitLoopController()
   }
 }
 
-void MitLoopController::start(double hz)
+void MitLoopController::require_idle() const {
+  if (calibration_active_ || calibration_executing_) throw std::runtime_error("zero calibration owns this loop");
+}
+
+void MitLoopController::start(double hz) { require_idle(); start_impl(hz, false); }
+
+void MitLoopController::start_impl(double hz, bool calibration)
 {
   if(!std::isfinite(hz) || hz < kMinControlHz || hz > kMaxControlHz ||
      std::chrono::duration_cast<std::chrono::steady_clock::duration>(std::chrono::duration<double>(1.0/hz)).count() <= 0)
@@ -75,7 +82,7 @@ void MitLoopController::start(double hz)
     tx_rate_.reset();
   }
   deadline_misses_ = 0;
-  arm_.set_loop_active(true);
+  arm_.set_loop_active(true, calibration);
   running_ = true;
   try { worker_ = std::thread([this, hz]() { worker_loop(hz); }); }
   catch (...) { running_ = false; arm_.set_loop_active(false); throw; }
@@ -83,6 +90,7 @@ void MitLoopController::start(double hz)
 
 void MitLoopController::enable_seeded(std::vector<MitCommand> gains, double hz,
                                           double command_timeout, double feedback_timeout) {
+  require_idle();
   if (!std::isfinite(hz) || hz < kMinControlHz || hz > kMaxControlHz || running_)
     throw std::invalid_argument("invalid startup frequency/state");
   if (gains.size() != commands_.size()) throw std::invalid_argument("hold gain count mismatch");
@@ -121,6 +129,7 @@ void MitLoopController::enable_seeded(std::vector<MitCommand> gains, double hz,
 void MitLoopController::start_seeded(std::vector<MitCommand> gains, double hz,
                                          double command_timeout, double feedback_timeout)
 {
+  require_idle();
   if (running_) throw std::runtime_error("MIT loop already running");
   if (gains.size() != commands_.size()) throw std::invalid_argument("hold gain count mismatch");
   {
@@ -136,6 +145,7 @@ void MitLoopController::start_seeded(std::vector<MitCommand> gains, double hz,
 std::vector<MitCommand> MitLoopController::hold_command() {
   std::unique_lock<std::mutex> lock(mutex_);
   if (!running_) throw std::runtime_error("MIT loop not running");
+  require_idle();
   if (hold_request_ != hold_sent_) throw std::runtime_error("hold confirmation pending");
   guard_.hold_command(arm_.states(), sent_commands_, monotonic_seconds());
   commands_ = guard_.holding;
@@ -148,6 +158,7 @@ void MitLoopController::hold(bool reset_fault) {
   std::unique_lock<std::mutex> lock(mutex_);
   if (!running_ || !guard_.enabled) throw std::runtime_error("guarded MIT loop not running");
   if (guard_.state == "STARTING") throw std::runtime_error("MIT startup incomplete");
+  require_idle();
   if (hold_request_ != hold_sent_) throw std::runtime_error("hold confirmation pending");
   guard_.hold(arm_.states(), sent_commands_, monotonic_seconds(), guard_.latched ? guard_.fault : "");
   if (reset_fault) { guard_.latched = false; guard_.fault.clear(); guard_.state = "HOLD"; }
@@ -176,7 +187,12 @@ std::string MitLoopController::fault() const { std::lock_guard<std::mutex> lock(
 std::uint64_t MitLoopController::accepted_sequence() const { std::lock_guard<std::mutex> lock(mutex_); return guard_.accepted_seq; }
 std::uint64_t MitLoopController::sent_sequence() const { std::lock_guard<std::mutex> lock(mutex_); return guard_.sent_seq; }
 
-void MitLoopController::stop()
+void MitLoopController::stop() {
+  calibration_cancelled_ = true;
+  stop_impl();
+}
+
+void MitLoopController::stop_impl()
 {
   std::lock_guard<std::mutex> stop_lock(stop_mutex_);
   const bool was_running = running_.exchange(false);
@@ -192,7 +208,7 @@ void MitLoopController::stop()
   {
     try
     {
-      arm_.send_zero_mit_all();
+      arm_.backend_.send_zero_mit_all();
     }
     catch(...)
     {
@@ -204,7 +220,8 @@ void MitLoopController::stop()
     catch(...) { disable_exception = std::current_exception(); }
   }
 
-  arm_.set_loop_active(false);
+  if (was_running) arm_.set_loop_active(false);
+  if (!calibration_executing_) release_calibration();
 
   if(disable_exception) {
     const auto message = std::string("shutdown unknown: ") + exception_text(disable_exception) +
@@ -300,6 +317,7 @@ void MitLoopController::set_command(std::uint16_t can_id, MitCommand command)
 void MitLoopController::set_commands(const std::map<std::uint16_t, MitCommand>& commands)
 {
   std::lock_guard<std::mutex> lock(mutex_);
+  require_idle();
   if (hold_request_ != hold_sent_) throw std::runtime_error("hold confirmation pending");
   const auto now = monotonic_seconds();
   auto updated = (guard_.state == "HOLD" || guard_.state == "FAULT_HOLD")
@@ -318,6 +336,7 @@ void MitLoopController::set_all_commands(std::vector<MitCommand> commands)
   }
 
   std::lock_guard<std::mutex> lock(mutex_);
+  require_idle();
   if (hold_request_ != hold_sent_) throw std::runtime_error("hold confirmation pending");
   arm_.validate_mit_all(commands);
   guard_.accept(commands, monotonic_seconds());
@@ -367,7 +386,7 @@ void MitLoopController::worker_loop(double hz)
           (guard_.state == "HOLD" || guard_.state == "FAULT_HOLD");
         if (guard_.enabled && guard_.state != "ACTIVE") commands_ = snapshot;
         const auto sending_seq = (!guard_.enabled || guard_.state == "ACTIVE") ? guard_.accepted_seq : 0;
-        arm_.send_mit_all(snapshot);
+        arm_.backend_.send_mit_all(snapshot);
         const auto sent_at = clock::now();
         if (holding && hold_request_ != hold_sent_ && sent_at > hold_deadline_)
           throw std::runtime_error("hold confirmation timeout after batch submission");
@@ -399,7 +418,7 @@ void MitLoopController::worker_loop(double hz)
     std::string cleanup_error;
     try
     {
-      arm_.send_zero_mit_all();
+      arm_.backend_.send_zero_mit_all();
     }
     catch(...) { cleanup_error = "zero send failed: " + exception_text(std::current_exception()); }
     try
@@ -429,4 +448,159 @@ void MitLoopController::worker_loop(double hz)
   }
 }
 
+void MitLoopController::release_calibration() {
+  if (calibration_active_) {
+    arm_.end_calibration();
+    calibration_active_ = false;
+  }
+}
+
+void MitLoopController::begin_calibration(std::vector<MitCommand> gains) {
+  CommandGuard validation;
+  validation.start(gains, monotonic_seconds());
+  const auto& c = arm_.config();
+  if (gains.size()!=10 || c.motors.size()!=10 || c.left.begin!=0 || c.left.count!=5 ||
+      c.right.begin!=5 || c.right.count!=5)
+    throw std::invalid_argument("calibration requires the complete dual-arm station");
+  std::set<unsigned> ids;
+  for (std::size_t i=0;i<10;++i) {
+    const auto& m=c.motors[i];
+    if (m.can_id>=10 || !ids.insert(m.can_id).second || (i<5)!=(m.can_id<5) ||
+        m.model!=(m.can_id%5<2 ? MotorModel::DM8009 : MotorModel::DM4340P) ||
+        gains[i].kd<=0 || gains[i].dq!=0 || gains[i].tau!=0)
+      throw std::invalid_argument("invalid calibration station model/ID/gains");
+  }
+  bool expected=false;
+  if (!calibration_executing_.compare_exchange_strong(expected,true))
+    throw std::runtime_error("calibration already executing");
+  bool owned=false;
+  try {
+    if (running_ && calibration_active_) {
+      std::uint64_t request;
+      {
+        std::lock_guard<std::mutex> stop_lock(stop_mutex_);
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (guard_.state!="FAULT_HOLD" || !guard_.enabled ||
+            calibration_saves_.size()!=10 || std::any_of(calibration_saves_.begin(),calibration_saves_.end(),
+              [](const std::string& s){return s!="NOT_ATTEMPTED";}))
+          throw std::runtime_error("calibration retry requires an unwritten healthy fault hold");
+        const auto states=arm_.states();
+        for(const auto& state:states)
+          if(!CommandGuard::fresh(state,.3)) throw std::runtime_error("calibration retry feedback invalid");
+        calibration_cancelled_=false;
+        guard_.start(gains,monotonic_seconds());
+        guard_.hold(states,gains,monotonic_seconds());
+        commands_=guard_.holding;
+        request=++hold_request_;
+      }
+      std::unique_lock<std::mutex> lock(mutex_);
+      wait_for_hold(lock,request);
+      return;
+    }
+    if (running_ || calibration_active_) throw std::runtime_error("stop MIT loop before calibration");
+    stop_impl();
+    calibration_cancelled_=false;
+    const auto positions=arm_.begin_calibration();
+    owned=true; calibration_active_=true;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      calibration_saves_.assign(10,"NOT_ATTEMPTED");
+      guard_.command_timeout=.5;guard_.feedback_timeout=.3;
+      guard_.start(std::move(gains),monotonic_seconds());
+      commands_=guard_.holding;
+      hold_request_=1;hold_sent_=0;
+      hold_deadline_=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+    }
+    {
+      std::lock_guard<std::mutex> stop_lock(stop_mutex_);
+      if (calibration_cancelled_) throw std::runtime_error("zero calibration cancelled");
+      arm_.backend_.enable();
+      start_impl(250,true);
+    }
+    std::unique_lock<std::mutex> lock(mutex_);
+    if (!changed_.wait_until(lock,hold_deadline_,[this]{return hold_sent_>=1 || !running_;}) ||
+        !running_ || guard_.state!="HOLD")
+      throw std::runtime_error("calibration startup failed: "+guard_.fault);
+    const auto states=arm_.states();
+    for (std::size_t i=0;i<10;++i)
+      if (std::abs(states[i].position-positions[i])>.02)
+        throw std::runtime_error("calibration startup position mismatch");
+  } catch (...) {
+    const auto original=std::current_exception();
+    std::string cleanup;
+    if (owned) {
+      try { stop_impl(); arm_.backend_.disable(); }
+      catch (...) { cleanup=exception_text(std::current_exception()); }
+    }
+    calibration_executing_=false;
+    if (owned && !running_) release_calibration();
+    if (!cleanup.empty()) throw std::runtime_error(exception_text(original)+"; cleanup: "+cleanup);
+    std::rethrow_exception(original);
+  }
+}
+
+void MitLoopController::calibration_update(std::vector<MitCommand> commands) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!calibration_executing_ || !calibration_active_ || calibration_cancelled_ || !running_)
+    throw std::runtime_error("zero calibration cancelled or stopped");
+  if (guard_.latched) throw std::runtime_error("calibration control failed: "+guard_.fault);
+  if (commands.size()!=commands_.size()) throw std::invalid_argument("calibration command count mismatch");
+  for (const auto& c:commands)
+    if (c.kp<=0 || c.kd<=0 || c.dq!=0 || c.tau!=0)
+      throw std::invalid_argument("calibration requires position MIT without feedforward");
+  arm_.validate_mit_all(commands);
+  guard_.accept(commands,monotonic_seconds());
+  guard_.gains=commands;
+  commands_=std::move(commands);
+}
+
+void MitLoopController::calibration_fail(const std::string& reason) {
+  if (!calibration_active_ || !running_) return;
+  std::unique_lock<std::mutex> lock(mutex_);
+  // Keep an already latched hold anchor, rather than repeatedly reseeding it.
+  if (!guard_.latched) {
+    guard_.hold(arm_.states(),commands_,monotonic_seconds(),reason);
+    commands_=guard_.holding;
+  }
+  wait_for_hold(lock,++hold_request_);
+}
+
+void MitLoopController::calibration_commit(const std::vector<double>& zeros) {
+  if (!calibration_active_ || !calibration_executing_)
+    throw std::runtime_error("no calibration owns this loop");
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!running_ || guard_.latched || calibration_cancelled_)
+      throw std::runtime_error("calibration control is not ready to commit: "+guard_.fault);
+    const auto states=arm_.states();
+    if (zeros.size()!=states.size()) throw std::invalid_argument("zero position count mismatch");
+    for (std::size_t i=0;i<states.size();++i)
+      if (!std::isfinite(zeros[i]) || !CommandGuard::fresh(states[i],.3) ||
+          std::abs(states[i].position-zeros[i])>=3.14159265358979323846/180)
+        throw std::runtime_error("calibration zero is not ready to commit");
+  }
+  try {
+    stop_impl();
+    arm_.backend_.commit_calibration(zeros,calibration_cancelled_,[&](std::size_t i,const std::string& state){
+      std::lock_guard<std::mutex> lock(mutex_);calibration_saves_[i]=state;
+    });
+    std::lock_guard<std::mutex> lock(mutex_);
+    guard_=CommandGuard{};commands_.assign(can_ids_.size(),{});sent_commands_=commands_;
+    hold_request_=hold_sent_=0;
+  } catch (...) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (guard_.state!="SHUTDOWN_UNKNOWN") guard_.state="FAULT";
+    guard_.latched=true;guard_.fault=exception_text(std::current_exception());
+    throw;
+  }
+}
+
+void MitLoopController::finish_calibration() {
+  std::lock_guard<std::mutex> stop_lock(stop_mutex_);
+  calibration_executing_=false;
+  if (!running_) release_calibration();
+}
+std::vector<std::string> MitLoopController::calibration_saves() const {
+  std::lock_guard<std::mutex> lock(mutex_);return calibration_saves_;
+}
 }  // namespace dm_openarm

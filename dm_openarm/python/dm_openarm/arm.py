@@ -5,6 +5,7 @@ from pathlib import Path
 
 from . import _core
 from .limb import Limb
+from .calibration import _Calibration
 
 
 class Arm:
@@ -18,6 +19,7 @@ class Arm:
     """
 
     def __init__(self, config: _core.ArmConfig):
+        self._calibration = _Calibration(self)
         self._config = config
         self._arm = _core.DmArm(config)
         self._loop = _core.MitLoopController(self._arm)
@@ -142,6 +144,26 @@ class Arm:
         if self._loop.running():
             raise RuntimeError("set_zero_all requires a stopped MIT loop")
         self._arm.set_zero_all(persist)
+
+    def calibrate_zero(self, *, kp=None, kd=None, gains=None):
+        """Scan both arms, park at measured zeros, then persist all ten axes.
+
+        Defaults: kp=120 on CAN 0/1/5/6, 60 on other axes, kd=5, dq=tau=0. Fast approach requires
+        trustworthy existing zeros; 12s per joint and 120s total are timing
+        targets reported as time_target_exceeded, never stop conditions.
+        Requires clear paths, mechanical support during disabled Flash writes, and station commissioning.
+        Failure with healthy feedback leaves a latched hold; inspect the report
+        before explicitly stopping/disabling. Raises CalibrationError with .report.
+        """
+        return self._calibration.run(kp=kp, kd=kd, gains=gains)
+
+    def calibration_status(self):
+        """Return an independent snapshot, including partial Flash results."""
+        return self._calibration.status()
+
+    def cancel_zero_calibration(self):
+        """Request cancellation; healthy feedback enters a latched hold."""
+        self._loop._cancel_calibration()
 
     def start_mit_loop(
         self,

@@ -1,0 +1,253 @@
+{
+  "date": "2026-10-16",
+  "status": "ANGLE_ZERO_CONFIRMED_BY_INDEPENDENT_READBACK",
+  "run_report": {
+    "success": false,
+    "phase": "FAILED",
+    "error": "fresh disabled angle feedback missing",
+    "elapsed_s": 59.09863220099987,
+    "joints": [
+      {
+        "can_id": 0,
+        "measured_lower": -3.558403968811035,
+        "measured_upper": 1.3956279754638672,
+        "repeat_error": 0.00019073486328125,
+        "span_error": 0.06703194427490189,
+        "zero_raw": -0.019824204562948644,
+        "final_error": 0.00017851364497989408,
+        "kp": 120.0,
+        "kd": 5.0,
+        "elapsed_s": 12.477954242000123,
+        "phase": "DONE",
+        "save_state": "UNKNOWN",
+        "time_target_exceeded": true
+      },
+      {
+        "can_id": 1,
+        "measured_lower": -3.299191474914551,
+        "measured_upper": 0.19932079315185547,
+        "repeat_error": 0.00019073486328125,
+        "span_error": 0.00788226806640635,
+        "zero_raw": 0.024396683135718078,
+        "final_error": 0.002878402313500672,
+        "kp": 120.0,
+        "kd": 5.0,
+        "elapsed_s": 10.051246642000024,
+        "phase": "DONE",
+        "save_state": "UNKNOWN",
+        "time_target_exceeded": false
+      },
+      {
+        "can_id": 2,
+        "measured_lower": -1.7404823303222656,
+        "measured_upper": 1.476881980895996,
+        "repeat_error": 0.000762939453125,
+        "span_error": 0.07576431121826177,
+        "zero_raw": -0.13180017471313477,
+        "final_error": 0.006485462188720703,
+        "kp": 60.0,
+        "kd": 5.0,
+        "elapsed_s": 11.35009666499991,
+        "phase": "DONE",
+        "save_state": "UNKNOWN",
+        "time_target_exceeded": false
+      },
+      {
+        "can_id": 3,
+        "measured_lower": -0.18978404998779297,
+        "measured_upper": 2.3203258514404297,
+        "repeat_error": 0.000762939453125,
+        "span_error": 0.06660990142822287,
+        "zero_raw": -0.18978404998779297,
+        "final_error": 0.0095367431640625,
+        "kp": 60.0,
+        "kd": 5.0,
+        "elapsed_s": 8.539048467000157,
+        "phase": "DONE",
+        "save_state": "UNKNOWN",
+        "time_target_exceeded": false
+      },
+      {
+        "can_id": 4,
+        "measured_lower": -1.5951404571533203,
+        "measured_upper": 1.581406593322754,
+        "repeat_error": 0.0003814697265625,
+        "span_error": 0.03494705047607427,
+        "zero_raw": -0.006866931915283203,
+        "final_error": 0.006676197052001953,
+        "kp": 60.0,
+        "kd": 5.0,
+        "elapsed_s": 10.151643711999895,
+        "phase": "DONE",
+        "save_state": "UNKNOWN",
+        "time_target_exceeded": false
+      },
+      {
+        "can_id": 5,
+        "measured_lower": -1.4148931503295898,
+        "measured_upper": 3.4756240844726562,
+        "repeat_error": 0.00019073486328125,
+        "span_error": 0.003517234802245639,
+        "zero_raw": -0.017588215818769903,
+        "final_error": 0.0029016313461136534,
+        "kp": 150.0,
+        "kd": 5.0,
+        "elapsed_s": 11.37747392700021,
+        "phase": "DONE",
+        "save_state": "UNKNOWN",
+        "time_target_exceeded": false
+      },
+      {
+        "can_id": 6,
+        "measured_lower": -0.16346168518066406,
+        "measured_upper": 3.336003303527832,
+        "repeat_error": 0.00019073486328125,
+        "span_error": 0.008834988708496194,
+        "zero_raw": 0.011510060458172988,
+        "final_error": 0.0006381732511417382,
+        "kp": 150.0,
+        "kd": 5.0,
+        "elapsed_s": 9.342747665999923,
+        "phase": "DONE",
+        "save_state": "UNKNOWN",
+        "time_target_exceeded": false
+      },
+      {
+        "can_id": 7,
+        "measured_lower": -1.5793085098266602,
+        "measured_upper": 1.6229887008666992,
+        "repeat_error": 0.000762939453125,
+        "span_error": 0.06069721069335943,
+        "zero_raw": 0.02184009552001953,
+        "final_error": 0.009249687194824219,
+        "kp": 60.0,
+        "kd": 5.0,
+        "elapsed_s": 9.744547797999985,
+        "phase": "DONE",
+        "save_state": "UNKNOWN",
+        "time_target_exceeded": false
+      },
+      {
+        "can_id": 8,
+        "measured_lower": -0.12264442443847656,
+        "measured_upper": 2.453841209411621,
+        "repeat_error": 0.0003814697265625,
+        "span_error": 0.13298563385009787,
+        "zero_raw": -0.12264442443847656,
+        "final_error": 0.01678466796875,
+        "kp": 75.0,
+        "kd": 5.0,
+        "elapsed_s": 9.147311178000109,
+        "phase": "DONE",
+        "save_state": "UNKNOWN",
+        "time_target_exceeded": false
+      },
+      {
+        "can_id": 9,
+        "measured_lower": -2.5587472915649414,
+        "measured_upper": 0.5807962417602539,
+        "repeat_error": 0.000762939453125,
+        "span_error": -0.0020564666748046356,
+        "zero_raw": -0.9889755249023438,
+        "final_error": 0.0087738037109375,
+        "kp": 60.0,
+        "kd": 5.0,
+        "elapsed_s": 14.260546136999892,
+        "phase": "DONE",
+        "save_state": "UNKNOWN",
+        "time_target_exceeded": true
+      }
+    ],
+    "time_target_exceeded": false,
+    "exception": "fresh disabled angle feedback missing",
+    "safety_state": "FAULT",
+    "independent_zero_readback_verified": true,
+    "independent_post_zero_angles": [
+      {
+        "can_id": 0,
+        "angle_rad": -0.00019073486328125,
+        "angle_deg": -0.010928302672020402,
+        "status": 0,
+        "fresh": true,
+        "new": true
+      },
+      {
+        "can_id": 1,
+        "angle_rad": -0.00019073486328125,
+        "angle_deg": -0.010928302672020402,
+        "status": 0,
+        "fresh": true,
+        "new": true
+      },
+      {
+        "can_id": 2,
+        "angle_rad": -0.00019073486328125,
+        "angle_deg": -0.010928302672020402,
+        "status": 0,
+        "fresh": true,
+        "new": true
+      },
+      {
+        "can_id": 3,
+        "angle_rad": -0.00019073486328125,
+        "angle_deg": -0.010928302672020402,
+        "status": 0,
+        "fresh": true,
+        "new": true
+      },
+      {
+        "can_id": 4,
+        "angle_rad": -0.00019073486328125,
+        "angle_deg": -0.010928302672020402,
+        "status": 0,
+        "fresh": true,
+        "new": true
+      },
+      {
+        "can_id": 5,
+        "angle_rad": -0.00019073486328125,
+        "angle_deg": -0.010928302672020402,
+        "status": 0,
+        "fresh": true,
+        "new": true
+      },
+      {
+        "can_id": 6,
+        "angle_rad": -0.00019073486328125,
+        "angle_deg": -0.010928302672020402,
+        "status": 0,
+        "fresh": true,
+        "new": true
+      },
+      {
+        "can_id": 7,
+        "angle_rad": -0.00019073486328125,
+        "angle_deg": -0.010928302672020402,
+        "status": 0,
+        "fresh": true,
+        "new": true
+      },
+      {
+        "can_id": 8,
+        "angle_rad": -0.00019073486328125,
+        "angle_deg": -0.010928302672020402,
+        "status": 0,
+        "fresh": true,
+        "new": true
+      },
+      {
+        "can_id": 9,
+        "angle_rad": -0.00019073486328125,
+        "angle_deg": -0.010928302672020402,
+        "status": 0,
+        "fresh": true,
+        "new": true
+      }
+    ]
+  },
+  "release_validation_scope": {
+    "final_window_logic_hardware_tested": false,
+    "power_cycle_retention_tested": false,
+    "note": "The recorded run used single-query final readback; the release adds a 1s collection window and read-only retries validated offline."
+  }
+}

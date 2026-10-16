@@ -37,10 +37,13 @@ public:
 
 private:
   friend class MitLoopController;
-  void set_loop_active(bool active);
+  void set_loop_active(bool active, bool calibration = false);
+  std::vector<double> begin_calibration();
+  void end_calibration();
   void disable_for_loop();
   mutable std::mutex maintenance_mutex_;
   bool loop_active_{false};
+  bool calibration_active_{false};
   ArmConfig config_;
   backend::DmSerialBackend backend_;
 };

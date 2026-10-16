@@ -45,11 +45,27 @@ public:
   std::vector<MitCommand> commands() const;
   std::vector<MitCommand> sent_commands() const;
 
+  // Internal maintenance bridge used by the Python calibration state machine.
+  void begin_calibration(std::vector<MitCommand> gains);
+  void calibration_update(std::vector<MitCommand> commands);
+  void calibration_fail(const std::string& reason);
+  void calibration_commit(const std::vector<double>& zeros);
+  void finish_calibration();
+  void cancel_calibration() noexcept { calibration_cancelled_ = true; }
+  bool calibration_cancelled() const noexcept { return calibration_cancelled_; }
+  std::vector<std::string> calibration_saves() const;
+
 private:
+  void start_impl(double hz, bool calibration);
+  void stop_impl();
+  void release_calibration();
+  void require_idle() const;
   std::size_t motor_index(std::uint16_t can_id) const;
   void worker_loop(double hz);
   void wait_for_hold(std::unique_lock<std::mutex>& lock, std::uint64_t request);
 
+  std::atomic<bool> calibration_active_{false}, calibration_executing_{false}, calibration_cancelled_{false};
+  std::vector<std::string> calibration_saves_;
   CommandGuard guard_;
   DmArm& arm_;
   std::vector<std::uint16_t> can_ids_;

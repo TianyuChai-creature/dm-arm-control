@@ -14,6 +14,8 @@
 #include <set>
 #include <stdexcept>
 #include <vector>
+#include <algorithm>
+#include <cmath>
 struct dmcan_context {};
 struct dmcan_device_handle {};
 static dmcan_context context;
@@ -33,10 +35,21 @@ static std::atomic<int> failed_mit_id{-1};
 static std::atomic<bool> flip_status2_after_save1{false};
 static bool flip_on_save1=false;
 static std::array<std::uint8_t,8> last_mit{};
+static std::atomic<bool> calibration_transport{false};
+static std::array<float,10> register_positions{};
+static std::array<dm_openarm::MotorModel,10> register_models{};
+static int missing_save_ack=-1, wrong_mapping=-1;
+static bool drift_after_save=false;
+static bool stale_save_ack_on_fd=false;
+static unsigned position_calibration_frames=0;
+static unsigned calibration_save_commands=0;
+static int drop_final_angle_queries=0;
+static bool final_angle_outside_zero=false;
+static std::array<double,10> plant_velocity{}, plant_torque{};
 extern "C" {
 void dmcan_context_create(dmcan_context** p){*p=&context;}
 void dmcan_context_destroy(dmcan_context*){}
-int dmcan_find_devices_with_type(dmcan_context*,int){return 4;}
+int dmcan_find_devices_with_type(dmcan_context*,int){return 16;}
 bool dmcan_device_get(dmcan_context*,dmcan_device_handle** p,int){*p=&device;return true;}
 void dmcan_device_get_info(dmcan_device_handle*,int* index,int*,int*,char** serial){
   *index=0;*serial=const_cast<char*>("fake");
@@ -52,6 +65,9 @@ bool dmcan_device_send_can(dmcan_device_handle*,uint8_t,uint32_t id,bool,bool,bo
     std::unique_lock<std::mutex> lock(frames_mutex);
     frames.emplace_back(id,op);
     if(op==0 && id==1 && n==8) std::memcpy(last_mit.data(),d,8);
+    if (calibration_transport && op==0 && id<10 && n==8) {
+      position_calibration_frames += (((d[3]&15)<<8)|d[4]) != 0 || ((d[5]<<4)|(d[6]>>4)) != 0;
+    }
     frames_changed.notify_all();
     if(op==0 && static_cast<int>(id)==blocked_id &&
        (blocked_kp<0 || (((d[3]&15)<<8)|d[4])==blocked_kp)){
@@ -62,6 +78,38 @@ bool dmcan_device_send_can(dmcan_device_handle*,uint8_t,uint32_t id,bool,bool,bo
   if(op==0 && static_cast<int>(id)==failed_mit_id.load())return false;
   if(op==0 && id==2 && fail_hold_send && (((d[3]&15)<<8)|d[4])==204)return false;
   if(static_cast<int>(op)==failed_op)return false;
+  if (calibration_transport && callback) {
+    if (id==0x7ff && op==0xcc && emit_status) {
+      if (calibration_save_commands==2 && d[0]==2 && drop_final_angle_queries!=0) {
+        if (drop_final_angle_queries>0) --drop_final_angle_queries;
+      } else inject_status(d[0],0);
+    }
+    if (id==2 && op==0xfd && stale_save_ack_on_fd) {
+      usb_rx_frame old{};old.head.can_id=2;old.head.dlc=4;old.payload[0]=2;old.payload[2]=0xaa;old.payload[3]=1;
+      callback(&device,&old);
+    }
+    if (id<10 && op==0xfe) register_positions[id]=0;
+    if (id==0x7ff && op==0x33) {
+      usb_rx_frame reply{}; reply.head.can_id=d[0]; reply.head.dlc=8;
+      reply.payload[0]=d[0]; reply.payload[1]=d[1]; reply.payload[2]=0x33; reply.payload[3]=d[3];
+      const bool large=register_models[d[0]]==dm_openarm::MotorModel::DM8009;
+      float value=d[3]==21 ? (wrong_mapping==d[0] ? 10.0f : 12.5f) : d[3]==22 ? (large ? 45 : 20) :
+                  d[3]==23 ? (large ? 54 : 28) : register_positions[d[0]];
+      if(d[3]==10) { const std::uint32_t mode=1; std::memcpy(reply.payload+4,&mode,4); }
+      else std::memcpy(reply.payload+4,&value,4);
+      callback(&device,&reply);
+    }
+    if (id==0x7ff && op==0xaa) {
+      ++calibration_save_commands;
+      if (calibration_save_commands==2 && final_angle_outside_zero) register_positions[1]=.1f;
+      if (drift_after_save && d[0]==1) register_positions[2]+=.1f;
+      if (missing_save_ack!=d[0]) {
+        usb_rx_frame reply{}; reply.head.can_id=d[0]; reply.head.dlc=4;
+        reply.payload[0]=d[0]; reply.payload[1]=d[1]; reply.payload[2]=0xaa; reply.payload[3]=1;
+        callback(&device,&reply);
+      }
+    }
+  }
   if(flip_on_save1 && id==0x7ff && op==0xaa && d[0]==1)
     flip_status2_after_save1=true;
   if(callback && id==0x7ff && n==4 && op==0xcc){
@@ -79,6 +127,7 @@ bool dmcan_device_send_can(dmcan_device_handle*,uint8_t,uint32_t id,bool,bool,bo
       f.payload[1]=0x80;f.payload[3]=0x80;f.payload[4]=0x08;callback(&device,&f);
     }
   }
+  if(calibration_transport && emit_status && (op==0xfc || op==0xfd))inject_status(id,op==0xfc ? 1 : 0);
   if(callback && mit_feedback && op==0)inject_status(id,1);
   return true;
 }
@@ -92,7 +141,17 @@ static unsigned count(unsigned id,unsigned op){std::lock_guard<std::mutex> lock(
 static void inject_status(unsigned id,unsigned status){
   assert(callback);usb_rx_frame f{};f.head.can_id=id;f.head.dlc=8;
   f.payload[0]=static_cast<uint8_t>((status<<4)|id);
-  f.payload[1]=0x80;f.payload[3]=0x80;f.payload[4]=0x08;callback(&device,&f);
+  f.payload[1]=0x80;f.payload[3]=0x80;f.payload[4]=0x08;
+  if(calibration_transport && id<10) {
+    const bool large=register_models[id]==dm_openarm::MotorModel::DM8009;
+    const auto encode=[](double value,double range,unsigned bits){return static_cast<unsigned>((value+range)/(2*range)*((1u<<bits)-1));};
+    const auto q=encode(register_positions[id],12.5,16);
+    const auto dq=encode(plant_velocity[id],large ? 45 : 20,12);
+    const auto tau=encode(plant_torque[id],large ? 54 : 28,12);
+    f.payload[1]=q>>8;f.payload[2]=q&255;f.payload[3]=dq>>4;
+    f.payload[4]=((dq&15)<<4)|(tau>>8);f.payload[5]=tau&255;
+  }
+  callback(&device,&f);
 }
 
 static void block_send(int id,int kp=-1){
@@ -247,7 +306,171 @@ static void test_single_limb_batch(){
   assert(loop.accepted_sequence()==2);
   loop.stop();arm.disconnect();mit_feedback=false;frames.clear();
 }
+
+static void prepare_calibration_transport(const dm_openarm::ArmConfig& c) {
+  register_positions.fill(0);
+  plant_velocity.fill(0);plant_torque.fill(0);
+  for (const auto& m : c.motors) register_models[m.can_id]=m.model;
+  position_calibration_frames=0; missing_save_ack=wrong_mapping=-1; drift_after_save=false;
+  stale_save_ack_on_fd=false;
+  calibration_save_commands=0;drop_final_angle_queries=0;final_angle_outside_zero=false;
+  calibration_transport=true; frames.clear();
+}
+
+
+static void test_calibration_transport() {
+  using namespace dm_openarm;
+  auto c=config();
+  for(auto& m:c.motors)m.model=MotorModel::DM4340P;
+  const std::vector<double> zeros{.4,-.3};
+  std::atomic<bool> cancel{false};
+  std::vector<std::string> saved(2,"NOT_ATTEMPTED");
+  auto progress=[&](std::size_t i,const std::string& state){saved[i]=state;};
+  {
+    prepare_calibration_transport(c);
+    backend::DmSerialBackend b(c);b.connect();wrong_mapping=1;
+    register_positions[1]=.4f;register_positions[2]=-.3f;
+    auto pos=b.verify_calibration_configuration();assert(std::abs(pos[0]-.4)<.001);
+    assert(count(0x7ff,0x33)==0 && count(1,0xfc)==0 && count(1,0xfe)==0);
+    assert(b.states()[0].rx_sequence>0);
+    emit_status=false;
+    bool failed=false;try{b.verify_calibration_configuration();}catch(const std::runtime_error&){failed=true;}
+    assert(failed);emit_status=true;wrong_mapping=-1;
+    b.enable();b.disable();b.commit_calibration(zeros,cancel,progress);
+    assert(saved[0]=="SAVED" && saved[1]=="SAVED");
+    assert(count(1,0xfe)==1 && count(2,0xfe)==1 && count(0x7ff,0xaa)==2);
+    b.disconnect();
+  }
+  {
+    prepare_calibration_transport(c);
+    backend::DmSerialBackend b(c);b.connect();b.enable();b.disable();
+    register_positions[1]=.4f;register_positions[2]=-.25f;
+    bool failed=false;try{b.commit_calibration(zeros,cancel,progress);}catch(const std::runtime_error&){failed=true;}
+    assert(failed && count(1,0xfe)==0);
+    register_positions[2]=-.3f;cancel=true;failed=false;
+    try{b.commit_calibration(zeros,cancel,progress);}catch(const std::runtime_error&){failed=true;}
+    assert(failed && count(1,0xfe)==0);cancel=false;
+    b.disconnect();
+  }
+  {
+    c.device_index=4;prepare_calibration_transport(c);saved.assign(2,"NOT_ATTEMPTED");
+    backend::DmSerialBackend b(c);b.connect();b.enable();b.disable();
+    register_positions[1]=.4f;register_positions[2]=-.3f;missing_save_ack=2;stale_save_ack_on_fd=true;
+    b.commit_calibration(zeros,cancel,progress);
+    assert(saved[0]=="SAVED" && saved[1]=="SAVED");
+    b.send_zero_mit_all();
+  }
+  {
+    c.device_index=5;prepare_calibration_transport(c);saved.assign(2,"NOT_ATTEMPTED");
+    backend::DmSerialBackend b(c);b.connect();b.enable();b.disable();
+    register_positions[1]=.4f;register_positions[2]=-.3f;drift_after_save=true;
+    bool failed=false;try{b.commit_calibration(zeros,cancel,progress);}catch(const std::runtime_error&){failed=true;}
+    assert(failed && saved[0]=="UNKNOWN" && saved[1]=="NOT_ATTEMPTED");
+    assert(count(1,0xfe)==1 && count(2,0xfe)==0);
+  }
+  calibration_transport=false;missing_save_ack=-1;drift_after_save=false;frames.clear();
+}
+
+static void test_final_angle_readback_window() {
+  using namespace dm_openarm;
+  auto c=config();
+  for(auto& m:c.motors) m.model=MotorModel::DM4340P;
+  for(int scenario=0;scenario<3;++scenario) {
+    c.device_index=10+scenario;
+    prepare_calibration_transport(c);
+    register_positions[1]=.4f;register_positions[2]=-.3f;
+    // One axis arrives promptly; the other arrives after 300ms or never.
+    drop_final_angle_queries=scenario==0 ? 6 : -1;
+    final_angle_outside_zero=scenario==2;
+    backend::DmSerialBackend b(c);b.connect();b.enable();b.disable();
+    std::atomic<bool> cancel{false};
+    std::vector<std::string> saved(2,"NOT_ATTEMPTED");
+    std::string error;
+    try {
+      b.commit_calibration({.4,-.3},cancel,[&](std::size_t i,const std::string& value){saved[i]=value;});
+    } catch(const std::runtime_error& e) {error=e.what();}
+    if(scenario==0) {
+      assert(error.empty() && saved[0]=="SAVED" && saved[1]=="SAVED");
+    } else {
+      assert(error.find(scenario==1 ? "timed out" : "position mismatch")!=std::string::npos);
+      assert(saved[0]=="UNKNOWN" && saved[1]=="UNKNOWN");
+    }
+    // Query retries must never repeat either motor's zero/Flash writes.
+    assert(count(1,0xfe)==1 && count(2,0xfe)==1 && count(0x7ff,0xaa)==2);
+    if(scenario==0) b.disconnect();
+  }
+  calibration_transport=false;frames.clear();
+}
+
+static void test_calibration_lease_and_position_mit() {
+  using namespace dm_openarm;
+  ArmConfig c;c.usb_serial="fake";c.left={0,5};c.right={5,5};
+  for(unsigned id=0;id<10;++id)
+    c.motors.push_back({"joint",id%5<2 ? MotorModel::DM8009 : MotorModel::DM4340P,
+        ControlMode::MIT,static_cast<uint16_t>(id),static_cast<uint16_t>(id+16)});
+  prepare_calibration_transport(c);mit_feedback=true;
+  DmArm arm(c);MitLoopController loop(arm),competitor(arm);
+  std::vector<MitCommand> commands(10,MitCommand{160,5,0,0,0});
+  loop.begin_calibration(commands);
+  auto rejects=[](const std::function<void()>& f){bool failed=false;try{f();}catch(const std::exception&){failed=true;}assert(failed);};
+  rejects([&]{loop.set_command(0,{});});rejects([&]{arm.set_zero(0);});
+  rejects([&]{arm.send_zero_mit_all();});rejects([&]{competitor.start(250);});
+  rejects([&]{loop.hold(true);});rejects([&]{arm.disconnect();});
+  commands[0].q=-.01;commands[5].q=-.01;loop.calibration_update(commands);
+  await_loop([&]{return loop.sent_sequence()==1;});
+  auto sent=loop.sent_commands();assert(sent[0].kp==160 && sent[0].kd==5 && sent[0].tau==0 && sent[0].dq==0);
+  assert(position_calibration_frames>0); // Firmware position gains must reach the wire.
+  loop.cancel_calibration();rejects([&]{loop.calibration_update(commands);});
+  loop.calibration_fail("cancelled");loop.finish_calibration();
+  assert(loop.running() && loop.safety_state()=="FAULT_HOLD");
+  assert(count(0,0xfe)==0 && count(0x7ff,0xaa)==0);
+  rejects([&]{loop.set_command(0,{});});
+  const auto enabled_before=count(0,0xfc),disabled_before=count(0,0xfd);
+  loop.begin_calibration(commands);
+  assert(loop.running() && loop.safety_state()=="HOLD" && !loop.calibration_cancelled());
+  assert(count(0,0xfc)==enabled_before && count(0,0xfd)==disabled_before);
+  loop.calibration_fail("retry stopped");loop.finish_calibration();loop.stop();
+  arm.send_zero_mit_all();arm.disconnect();
+  calibration_transport=false;mit_feedback=false;frames.clear();
+}
+
+static void test_calibration_commit_clears_old_coordinates() {
+  using namespace dm_openarm;
+  ArmConfig c;c.usb_serial="fake";c.left={0,5};c.right={5,5};
+  for (unsigned id=0;id<10;++id)
+    c.motors.push_back({"joint",id%5<2 ? MotorModel::DM8009 : MotorModel::DM4340P,
+        ControlMode::MIT,static_cast<uint16_t>(id),static_cast<uint16_t>(id+16)});
+  prepare_calibration_transport(c);mit_feedback=true;
+  DmArm arm(c);MitLoopController loop(arm),competitor(arm);
+  loop.begin_calibration(std::vector<MitCommand>(10,MitCommand{160,5,0,0,0}));
+  // Stopping an idle competing controller must not release the live owner's lease.
+  competitor.stop();
+  bool failed=false;try{competitor.start(250);}catch(const std::runtime_error&){failed=true;}assert(failed);
+  loop.calibration_commit(std::vector<double>(10,0));loop.finish_calibration();
+  assert(!loop.running() && loop.safety_state()=="DISABLED");
+  for(const auto& saved:loop.calibration_saves())assert(saved=="SAVED");
+  for(const auto& cmd:loop.commands())assert(cmd.kp==0 && cmd.q==0 && cmd.tau==0);
+  for(unsigned id=0;id<10;++id)assert(count(id,0xfe)==1);
+  arm.disconnect();calibration_transport=false;mit_feedback=false;frames.clear();
+}
+
+static void test_idle_controller_cannot_release_another_loop() {
+  using namespace dm_openarm;
+  mit_feedback=true;
+  DmArm arm(config());MitLoopController owner(arm),idle(arm);
+  owner.enable_seeded(std::vector<MitCommand>(2,MitCommand{25,1,0,0,0}),250,.5,.3);
+  idle.stop();
+  bool failed=false;try{idle.start(250);}catch(const std::runtime_error&){failed=true;}
+  assert(failed && owner.running());
+  owner.stop();arm.disconnect();mit_feedback=false;frames.clear();
+}
+
 int main(){using namespace dm_openarm;
+  test_idle_controller_cannot_release_another_loop();
+  test_calibration_transport();
+  test_final_angle_readback_window();
+  test_calibration_lease_and_position_mit();
+  test_calibration_commit_clears_old_coordinates();
   test_guarded_updates();
   test_startup_and_hold_boundary();
   test_hold_send_failure(false);

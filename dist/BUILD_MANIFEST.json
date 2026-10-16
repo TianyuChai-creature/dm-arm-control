@@ -1,17 +1,16 @@
 {
-  "release": "0.1.11",
-  "base_release": "0.1.10",
-  "legacy_contract": "0.1.7.post2",
+  "release": "0.1.12",
+  "base_release": "0.1.11",
   "source": {
-    "source_commit": "c436dbcc4194c69ce9baa80391eb1fc71243a4ee",
-    "source_tree": "aea43aa90c287c6b14b4049c6f8f39683c1d8b07",
-    "source_archive_sha256": "dc2c4ae3ea0a3f7c878a2031223e77b038bd8e28dbb93e69f1d014e4c6634e82",
+    "source_commit": "684301358dd11f7dc95e23ba51c6d370f8418172",
+    "source_tree": "93878ad91d77836c4fd3d9e09d2bb293eaed878e",
+    "source_archive_sha256": "6c7a6fc0755ae9da5e18f1a1c895ebadae8f795193c440b09c76d05f3ea3114c",
     "source_dirty_at_build_start": false,
-    "source_directory": "/tmp/dm-openarm-0.1.11-source-clean"
+    "source_directory": "/tmp/dm-openarm-0.1.12-source-clean"
   },
   "build": {
     "command": [
-      "/tmp/dm-openarm-0.1.11-build-env/bin/python",
+      "/tmp/dm-openarm-0.1.12-build-env/bin/python",
       "-I",
       "-m",
       "build",
@@ -19,8 +18,8 @@
       "--no-isolation",
       "--outdir",
       "/home/creature/Desktop/workspace/Project-Retargeting/dm-arm-control/dist",
-      "-Cbuild-dir=/tmp/dm-openarm-0.1.11-wheel-build-clean",
-      "/tmp/dm-openarm-0.1.11-source-clean/dm_openarm"
+      "-Cbuild-dir=/tmp/dm-openarm-0.1.12-wheel-build-clean",
+      "/tmp/dm-openarm-0.1.12-source-clean/dm_openarm"
     ],
     "environment_unset": [
       "PKG_CONFIG_SYSROOT_DIR",
@@ -38,34 +37,31 @@
       "PYTHONHOME"
     ],
     "environment_overrides": {
-      "PATH": "/tmp/dm-openarm-0.1.11-build-env/bin:/usr/bin:/bin:/usr/local/bin",
+      "PATH": "/tmp/dm-openarm-0.1.12-build-env/bin:/usr/bin:/bin:/usr/local/bin",
       "CC": "/usr/bin/gcc",
       "CXX": "/usr/bin/g++",
       "CMAKE_BUILD_PARALLEL_LEVEL": "4"
     },
-    "started_at_utc": "2026-10-14T09:52:23.080212+00:00",
-    "finished_at_utc": "2026-10-14T09:52:27.785791+00:00",
+    "started_at_utc": "2026-10-16T02:19:37.446900+00:00",
+    "finished_at_utc": "2026-10-16T02:19:42.231538+00:00",
     "build_dependencies": [
       "build==1.6.1",
+      "iniconfig==2.3.1",
       "nanobind==3.1.0",
       "packaging==26.3",
       "pathspec==1.1.1",
+      "pluggy==1.7.0",
+      "pygments==2.21.0",
       "pyproject-hooks==1.3.3",
+      "pytest==9.1.1",
       "scikit-build-core==1.1.1"
-    ],
-    "build_directory": "/tmp/dm-openarm-0.1.11-wheel-build-clean",
-    "cmake_settings": {
-      "BUILD_TESTING": "OFF",
-      "CMAKE_BUILD_TYPE": "Release",
-      "DM_OPENARM_BUILD_EXAMPLES": "OFF",
-      "DM_OPENARM_BUILD_PYTHON": "ON"
-    }
+    ]
   },
   "system": {
-    "architecture": "x86_64",
-    "python_version": "Python 3.12.13",
+    "python": "Python 3.13.13",
     "compiler": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
     "cmake": "cmake version 3.28.3",
+    "architecture": "x86_64",
     "os_release": [
       "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"",
       "NAME=\"Ubuntu\"",
@@ -81,103 +77,60 @@
       "UBUNTU_CODENAME=noble",
       "LOGO=ubuntu-logo"
     ],
-    "libc": "ldd (Ubuntu GLIBC 2.39-0ubuntu8.9) 2.39"
-  },
-  "sdk_input": {
-    "path": "dm_openarm/third_party/damiao_sdk/lib/libdm_device.so",
-    "sha256": "6ff5cea271f65d9c89a6a3effb51c923dbfe859461ec6400ee3f5852a52ddb76",
-    "unchanged_from_0_1_7_post2": true
+    "libusb": "1.0.27"
   },
   "wheel": {
-    "filename": "dm_openarm-0.1.11-cp312-cp312-linux_x86_64.whl",
-    "size_bytes": 242576,
-    "sha256": "13f6d7576fa349b923d0fa674ce6d7dd2e37704a61ed445b8c5262236d96d999",
-    "metadata_version": "0.1.11",
+    "filename": "dm_openarm-0.1.12-cp313-cp313-linux_x86_64.whl",
+    "size_bytes": 269639,
+    "sha256": "0b55237ad9d61a24392ac3bebba765d6ddf0c21d2f020111bd2a3247a18e3444",
+    "metadata_version": "0.1.12",
     "wheel_metadata": [
       "Wheel-Version: 1.0",
       "Generator: scikit-build-core 1.1.1",
       "Root-Is-Purelib: false",
-      "Tag: cp312-cp312-linux_x86_64",
+      "Tag: cp313-cp313-linux_x86_64",
       ""
     ],
+    "core_filename": "dm_openarm/_core.cpython-313-x86_64-linux-gnu.so",
+    "core_sha256": "ee9f954077573f52f386d998d3a8ba3f769b605373faa0bc871525ea6d6c981e",
     "sdk_in_wheel_sha256": "6ff5cea271f65d9c89a6a3effb51c923dbfe859461ec6400ee3f5852a52ddb76",
-    "core_filename": "dm_openarm/_core.cpython-312-x86_64-linux-gnu.so",
-    "core_sha256": "e1342ba232db35cfb3cf28286308831f618440db773d668af27d08f7df82f6e1"
+    "record_hashes_verified": true,
+    "installed_files_match_wheel": true,
+    "installed_module": "/tmp/dm-openarm-0.1.12-test-env/lib/python3.13/site-packages/dm_openarm",
+    "python_version": "3.13.13 (main, May 10 2026, 19:26:54) [Clang 22.1.3 ]",
+    "api_exports_verified": true
   },
-  "runtime_requirements": {
-    "external_libraries": [
-      "libyaml-cpp.so.0.8",
-      "libusb-1.0.so.0"
-    ],
-    "manylinux_certified": false,
-    "ldd_verified": [
-      "linux-vdso.so.1 (0x0000724b6a1a9000)",
-      "\tlibdm_device.so => /home/creature/Desktop/workspace/Project-Retargeting/real-Teleop/.venv/lib/python3.12/site-packages/dm_openarm/libdm_device.so (0x0000724b6a113000)",
-      "\tlibyaml-cpp.so.0.8 => /lib/x86_64-linux-gnu/libyaml-cpp.so.0.8 (0x0000724b6a0a2000)",
-      "\tlibstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x0000724b69e00000)",
-      "\tlibgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x0000724b69dd2000)",
-      "\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x0000724b69a00000)",
-      "\tlibusb-1.0.so.0 => /lib/x86_64-linux-gnu/libusb-1.0.so.0 (0x0000724b6a082000)",
-      "\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x0000724b69ce9000)",
-      "\t/lib64/ld-linux-x86-64.so.2 (0x0000724b6a1ab000)",
-      "\tlibudev.so.1 => /lib/x86_64-linux-gnu/libudev.so.1 (0x0000724b69cb6000)",
-      "\tlibcap.so.2 => /lib/x86_64-linux-gnu/libcap.so.2 (0x0000724b69ca9000)"
-    ]
-  },
-  "validation": {
-    "cpp": {
-      "configuration": "Debug",
-      "assertions_enabled": "-UNDEBUG",
+  "verification": {
+    "native": {
+      "build_type": "Debug",
+      "assertions_enabled": true,
+      "directory": "/tmp/dm-openarm-0.1.12-debug",
+      "command": "ctest --test-dir /tmp/dm-openarm-0.1.12-debug --output-on-failure",
       "passed": 6,
-      "failed": 0,
-      "command": [
-        "/usr/bin/ctest",
-        "--test-dir",
-        "/tmp/dm-openarm-0.1.11-debug",
-        "--output-on-failure",
-        "--timeout",
-        "20"
-      ],
-      "tests": [
-        "test_yaml_loader",
-        "test_mit_control_command",
-        "test_mit_loop_controller",
-        "test_command_guard",
-        "test_shared_bus",
-        "test_safety_transport"
-      ]
+      "failed": 0
     },
     "python_installed_wheel": {
-      "passed_files": [
+      "interpreter": "/tmp/dm-openarm-0.1.12-test-env/bin/python",
+      "isolated_mode": true,
+      "suites": [
+        "test_calibration.py",
         "test_python_api.py",
         "test_limb_api.py"
       ],
-      "environment": "real-Teleop/.venv",
-      "installed_files_match_wheel": true
-    },
-    "consumer": {
-      "project": "real-Teleop",
-      "passed": 40,
+      "passed": 60,
       "failed": 0,
-      "command": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -I -B -m pytest -q -p no:cacheprovider tests/test_sdk_wheels.py tests/test_dm_openarm_backend.py tests/test_set_arm_zero.py tests/test_arm_ready.py tests/test_runtime_safety.py"
+      "source_tests_directory": "/tmp/dm-openarm-0.1.12-source-clean/dm_openarm/tests"
     },
     "wheel_record_hashes_verified": true,
-    "hardware_connected": false,
-    "limits": [
-      "No motor actuation, physical hold or emergency-stop validation.",
-      "Disable feedback timing and persistent zeroing still require station acceptance."
-    ]
+    "installed_files_match_wheel": true,
+    "hardware_operated_during_release": false,
+    "final_readback_window_hardware_verified": false,
+    "power_cycle_retention_verified": false
   },
-  "legacy_evidence": {
-    "post1_patch": "real-Teleop Git eeb0a18^:wheels/patches/dm_openarm-0.1.7.post1.patch",
-    "post2_patch": "real-Teleop Git 783e90a^:wheels/patches/dm_openarm-0.1.7.post2.patch",
-    "coverage": [
-      "shared USB ownership",
-      "single-side configuration",
-      "passive status probes",
-      "register/status reply isolation"
-    ],
-    "exact_old_wheel_rebuild_verified": false
-  },
-  "previous_build_manifest": "BUILD_MANIFEST_0.1.10.json"
+  "input_hashes": {
+    "dm_openarm/third_party/damiao_sdk/lib/libdm_device.so": "6ff5cea271f65d9c89a6a3effb51c923dbfe859461ec6400ee3f5852a52ddb76",
+    "dm_openarm/third_party/damiao_sdk/src/protocol/damiao.cpp": "7e72536927df0c13e5eefa1f59d9e75d34724f938e11eae8ded237d47ee14d8b",
+    "dm_openarm/third_party/damiao_sdk/include/protocol/damiao.h": "57f0eaa6ea921df8f0006d7c50308d77273b2573ef9519d4ee165c1a833f6b42",
+    "dm_openarm/python/dm_openarm/calibration.py": "c632532d92fd8642fa47fd55100cad0e66783f938357b6f5446e880f24cd92a3"
+  }
 }

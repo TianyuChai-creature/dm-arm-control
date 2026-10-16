@@ -164,5 +164,18 @@ NB_MODULE(_core, m)
       &dm_openarm::MitLoopController::set_all_commands,
       nb::arg("commands"), nb::call_guard<nb::gil_scoped_release>())
     .def("commands", &dm_openarm::MitLoopController::commands)
-    .def("sent_commands", &dm_openarm::MitLoopController::sent_commands);
+    .def("sent_commands", &dm_openarm::MitLoopController::sent_commands)
+    .def("_begin_calibration", &dm_openarm::MitLoopController::begin_calibration,
+         nb::call_guard<nb::gil_scoped_release>())
+    .def("_calibration_update", &dm_openarm::MitLoopController::calibration_update,
+         nb::call_guard<nb::gil_scoped_release>())
+    .def("_calibration_fail", &dm_openarm::MitLoopController::calibration_fail,
+         nb::call_guard<nb::gil_scoped_release>())
+    .def("_calibration_commit", &dm_openarm::MitLoopController::calibration_commit,
+         nb::call_guard<nb::gil_scoped_release>())
+    .def("_finish_calibration", &dm_openarm::MitLoopController::finish_calibration,
+         nb::call_guard<nb::gil_scoped_release>())
+    .def("_cancel_calibration", &dm_openarm::MitLoopController::cancel_calibration)
+    .def("_calibration_cancelled", &dm_openarm::MitLoopController::calibration_cancelled)
+    .def("_calibration_saves", &dm_openarm::MitLoopController::calibration_saves);
 }
