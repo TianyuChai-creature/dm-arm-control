@@ -478,15 +478,65 @@ float Motor_Control::read_motor_param(Motor& DM_Motor, uint8_t RID)
 
 void Motor_Control::save_motor_param(Motor& DM_Motor)
 {
+  dispatch_save_motor_param(DM_Motor);
+  usleep(100000);
+}
+
+uint64_t Motor_Control::dispatch_save_motor_param(Motor& DM_Motor)
+{
   const uint16_t id = DM_Motor.GetCanId();
   const uint16_t mode = DM_Motor.GetMotorMode();
   control_cmd(static_cast<uint16_t>(id + mode), 0xFD, DM_Motor.GetChannel());
   usleep(10000);
+  uint64_t before;
+  { std::lock_guard<std::mutex> lock(mutex_); before = DM_Motor.save_sequence_; }
   const uint8_t payload[8] = {static_cast<uint8_t>(id & 0xff), static_cast<uint8_t>((id >> 8) & 0xff),
                               0xAA, 0x01, 0x00, 0x00, 0x00, 0x00};
   if (!send_can(DM_Motor.GetChannel(), 0x7FF, payload, 8))
     throw std::runtime_error("save_motor_param: CAN send failed");
+  return before;
+}
+
+float Motor_Control::read_motor_param_confirmed(Motor& motor, uint8_t rid, double timeout_s)
+{
+  if (!std::isfinite(timeout_s) || timeout_s <= 0)
+    throw std::invalid_argument("invalid register read timeout");
+  std::lock_guard<std::mutex> query_lock(query_mutex_);
+  uint64_t before;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    before = motor.read_replies_[rid].second;
+  }
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout_s);
+  read_motor_param(motor, rid);
+  do {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      const auto& reply = motor.read_replies_[rid];
+      if (reply.second > before) {
+        if (!std::isfinite(reply.first)) throw std::runtime_error("non-finite register reply");
+        return reply.first;
+      }
+    }
+    usleep(2000);
+  } while (std::chrono::steady_clock::now() < deadline);
+  throw std::runtime_error("register read unconfirmed: CAN ID=" + std::to_string(motor.GetCanId()) +
+                           " RID=" + std::to_string(rid));
+}
+
+void Motor_Control::save_motor_param_confirmed(Motor& motor, double timeout_s)
+{
+  if (!std::isfinite(timeout_s) || timeout_s <= 0)
+    throw std::invalid_argument("invalid save timeout");
+  std::lock_guard<std::mutex> query_lock(query_mutex_);
+  const uint64_t before = dispatch_save_motor_param(motor);
   usleep(100000);
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout_s);
+  do {
+    { std::lock_guard<std::mutex> lock(mutex_); if (motor.save_sequence_ > before) return; }
+    usleep(2000);
+  } while (std::chrono::steady_clock::now() < deadline);
+  throw std::runtime_error("Flash save unconfirmed: CAN ID=" + std::to_string(motor.GetCanId()));
 }
 
 void Motor_Control::refresh_motor_status(Motor& motor)
@@ -617,6 +667,13 @@ void Motor_Control::receive_param(uint8_t* data)
   {
     return;
   }
+  if (data[2] == 0x33) {
+    auto& reply = motors[canID]->read_replies_[RID];
+    const uint32_t integer = uint32_t(data[4]) | (uint32_t(data[5]) << 8) |
+                             (uint32_t(data[6]) << 16) | (uint32_t(data[7]) << 24);
+    reply.first = is_in_ranges(RID) ? static_cast<float>(integer) : uint8_to_float(data + 4);
+    ++reply.second;
+  }
   if(is_in_ranges(RID))
   {
     const uint32_t data_uint32 = (uint32_t(data[7]) << 24) | (uint32_t(data[6]) << 16) |
@@ -696,6 +753,12 @@ void Motor_Control::on_rx_frame(const usb_rx_frame& frame)
     return;
   }
   auto m = it->second;
+  if ((len == 4 || len == 8) && frame.head.channel == m->GetChannel() &&
+      frame.payload[0] == (m->GetCanId() & 0xff) && frame.payload[1] == (m->GetCanId() >> 8) &&
+      frame.payload[2] == 0xAA && frame.payload[3] == 0x01) {
+    ++m->save_sequence_;
+    return;
+  }
   // The read-only 0xCC reply is not a motion sample: do not seed an MIT HOLD
   // target from its payload, even if the motor is disabled.
   if(len >= 3 && frame.payload[0] == (m->GetCanId() & 0xff) &&

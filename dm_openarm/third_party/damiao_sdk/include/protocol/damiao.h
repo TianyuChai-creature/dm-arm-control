@@ -172,6 +172,8 @@ private:
   };
 
   std::unordered_map<uint32_t, ValueType> param_map;
+  std::unordered_map<uint8_t, std::pair<float, uint64_t>> read_replies_;
+  uint64_t save_sequence_{0};
   std::chrono::steady_clock::time_point last_time_;
   double delta_time_{0.0};
   uint64_t rx_sequence_{0};
@@ -230,6 +232,8 @@ public:
   void enable_all();
   void disable_all();
   float read_motor_param(Motor& DM_Motor, uint8_t RID);
+  float read_motor_param_confirmed(Motor& motor, uint8_t rid, double timeout_s = 0.2);
+  void save_motor_param_confirmed(Motor& motor, double timeout_s = 0.2);
   void save_motor_param(Motor& DM_Motor);
   void refresh_motor_status(Motor& motor);
   uint64_t response_sequence(uint16_t can_id) const;
@@ -285,9 +289,11 @@ private:
   bool send_can(uint8_t channel, uint32_t can_id, const uint8_t* data, uint8_t len);
   std::vector<std::shared_ptr<Motor>> unique_motors() const;
   void close_device();
+  uint64_t dispatch_save_motor_param(Motor& motor);
 
   bool auto_disable_;
   std::mutex send_mutex_;
+  std::mutex query_mutex_;
   std::unordered_map<uint16_t, std::shared_ptr<Motor>> motors;
   std::vector<DmActData>* data_ptr_{nullptr};
 

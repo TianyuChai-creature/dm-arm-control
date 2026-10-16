@@ -1,0 +1,183 @@
+{
+  "release": "0.1.11",
+  "base_release": "0.1.10",
+  "legacy_contract": "0.1.7.post2",
+  "source": {
+    "source_commit": "c436dbcc4194c69ce9baa80391eb1fc71243a4ee",
+    "source_tree": "aea43aa90c287c6b14b4049c6f8f39683c1d8b07",
+    "source_archive_sha256": "dc2c4ae3ea0a3f7c878a2031223e77b038bd8e28dbb93e69f1d014e4c6634e82",
+    "source_dirty_at_build_start": false,
+    "source_directory": "/tmp/dm-openarm-0.1.11-source-clean"
+  },
+  "build": {
+    "command": [
+      "/tmp/dm-openarm-0.1.11-build-env/bin/python",
+      "-I",
+      "-m",
+      "build",
+      "--wheel",
+      "--no-isolation",
+      "--outdir",
+      "/home/creature/Desktop/workspace/Project-Retargeting/dm-arm-control/dist",
+      "-Cbuild-dir=/tmp/dm-openarm-0.1.11-wheel-build-clean",
+      "/tmp/dm-openarm-0.1.11-source-clean/dm_openarm"
+    ],
+    "environment_unset": [
+      "PKG_CONFIG_SYSROOT_DIR",
+      "PKG_CONFIG_LIBDIR",
+      "PKG_CONFIG_PATH",
+      "CMAKE_TOOLCHAIN_FILE",
+      "CMAKE_PREFIX_PATH",
+      "CFLAGS",
+      "CXXFLAGS",
+      "CPPFLAGS",
+      "LDFLAGS",
+      "SDKROOT",
+      "_PYTHON_SYSCONFIGDATA_NAME",
+      "PYTHONPATH",
+      "PYTHONHOME"
+    ],
+    "environment_overrides": {
+      "PATH": "/tmp/dm-openarm-0.1.11-build-env/bin:/usr/bin:/bin:/usr/local/bin",
+      "CC": "/usr/bin/gcc",
+      "CXX": "/usr/bin/g++",
+      "CMAKE_BUILD_PARALLEL_LEVEL": "4"
+    },
+    "started_at_utc": "2026-10-14T09:52:23.080212+00:00",
+    "finished_at_utc": "2026-10-14T09:52:27.785791+00:00",
+    "build_dependencies": [
+      "build==1.6.1",
+      "nanobind==3.1.0",
+      "packaging==26.3",
+      "pathspec==1.1.1",
+      "pyproject-hooks==1.3.3",
+      "scikit-build-core==1.1.1"
+    ],
+    "build_directory": "/tmp/dm-openarm-0.1.11-wheel-build-clean",
+    "cmake_settings": {
+      "BUILD_TESTING": "OFF",
+      "CMAKE_BUILD_TYPE": "Release",
+      "DM_OPENARM_BUILD_EXAMPLES": "OFF",
+      "DM_OPENARM_BUILD_PYTHON": "ON"
+    }
+  },
+  "system": {
+    "architecture": "x86_64",
+    "python_version": "Python 3.12.13",
+    "compiler": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
+    "cmake": "cmake version 3.28.3",
+    "os_release": [
+      "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"",
+      "NAME=\"Ubuntu\"",
+      "VERSION_ID=\"24.04\"",
+      "VERSION=\"24.04.5 LTS (Noble Numbat)\"",
+      "VERSION_CODENAME=noble",
+      "ID=ubuntu",
+      "ID_LIKE=debian",
+      "HOME_URL=\"https://www.ubuntu.com/\"",
+      "SUPPORT_URL=\"https://help.ubuntu.com/\"",
+      "BUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"",
+      "PRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"",
+      "UBUNTU_CODENAME=noble",
+      "LOGO=ubuntu-logo"
+    ],
+    "libc": "ldd (Ubuntu GLIBC 2.39-0ubuntu8.9) 2.39"
+  },
+  "sdk_input": {
+    "path": "dm_openarm/third_party/damiao_sdk/lib/libdm_device.so",
+    "sha256": "6ff5cea271f65d9c89a6a3effb51c923dbfe859461ec6400ee3f5852a52ddb76",
+    "unchanged_from_0_1_7_post2": true
+  },
+  "wheel": {
+    "filename": "dm_openarm-0.1.11-cp312-cp312-linux_x86_64.whl",
+    "size_bytes": 242576,
+    "sha256": "13f6d7576fa349b923d0fa674ce6d7dd2e37704a61ed445b8c5262236d96d999",
+    "metadata_version": "0.1.11",
+    "wheel_metadata": [
+      "Wheel-Version: 1.0",
+      "Generator: scikit-build-core 1.1.1",
+      "Root-Is-Purelib: false",
+      "Tag: cp312-cp312-linux_x86_64",
+      ""
+    ],
+    "sdk_in_wheel_sha256": "6ff5cea271f65d9c89a6a3effb51c923dbfe859461ec6400ee3f5852a52ddb76",
+    "core_filename": "dm_openarm/_core.cpython-312-x86_64-linux-gnu.so",
+    "core_sha256": "e1342ba232db35cfb3cf28286308831f618440db773d668af27d08f7df82f6e1"
+  },
+  "runtime_requirements": {
+    "external_libraries": [
+      "libyaml-cpp.so.0.8",
+      "libusb-1.0.so.0"
+    ],
+    "manylinux_certified": false,
+    "ldd_verified": [
+      "linux-vdso.so.1 (0x0000724b6a1a9000)",
+      "\tlibdm_device.so => /home/creature/Desktop/workspace/Project-Retargeting/real-Teleop/.venv/lib/python3.12/site-packages/dm_openarm/libdm_device.so (0x0000724b6a113000)",
+      "\tlibyaml-cpp.so.0.8 => /lib/x86_64-linux-gnu/libyaml-cpp.so.0.8 (0x0000724b6a0a2000)",
+      "\tlibstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x0000724b69e00000)",
+      "\tlibgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x0000724b69dd2000)",
+      "\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x0000724b69a00000)",
+      "\tlibusb-1.0.so.0 => /lib/x86_64-linux-gnu/libusb-1.0.so.0 (0x0000724b6a082000)",
+      "\tlibm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x0000724b69ce9000)",
+      "\t/lib64/ld-linux-x86-64.so.2 (0x0000724b6a1ab000)",
+      "\tlibudev.so.1 => /lib/x86_64-linux-gnu/libudev.so.1 (0x0000724b69cb6000)",
+      "\tlibcap.so.2 => /lib/x86_64-linux-gnu/libcap.so.2 (0x0000724b69ca9000)"
+    ]
+  },
+  "validation": {
+    "cpp": {
+      "configuration": "Debug",
+      "assertions_enabled": "-UNDEBUG",
+      "passed": 6,
+      "failed": 0,
+      "command": [
+        "/usr/bin/ctest",
+        "--test-dir",
+        "/tmp/dm-openarm-0.1.11-debug",
+        "--output-on-failure",
+        "--timeout",
+        "20"
+      ],
+      "tests": [
+        "test_yaml_loader",
+        "test_mit_control_command",
+        "test_mit_loop_controller",
+        "test_command_guard",
+        "test_shared_bus",
+        "test_safety_transport"
+      ]
+    },
+    "python_installed_wheel": {
+      "passed_files": [
+        "test_python_api.py",
+        "test_limb_api.py"
+      ],
+      "environment": "real-Teleop/.venv",
+      "installed_files_match_wheel": true
+    },
+    "consumer": {
+      "project": "real-Teleop",
+      "passed": 40,
+      "failed": 0,
+      "command": "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 .venv/bin/python -I -B -m pytest -q -p no:cacheprovider tests/test_sdk_wheels.py tests/test_dm_openarm_backend.py tests/test_set_arm_zero.py tests/test_arm_ready.py tests/test_runtime_safety.py"
+    },
+    "wheel_record_hashes_verified": true,
+    "hardware_connected": false,
+    "limits": [
+      "No motor actuation, physical hold or emergency-stop validation.",
+      "Disable feedback timing and persistent zeroing still require station acceptance."
+    ]
+  },
+  "legacy_evidence": {
+    "post1_patch": "real-Teleop Git eeb0a18^:wheels/patches/dm_openarm-0.1.7.post1.patch",
+    "post2_patch": "real-Teleop Git 783e90a^:wheels/patches/dm_openarm-0.1.7.post2.patch",
+    "coverage": [
+      "shared USB ownership",
+      "single-side configuration",
+      "passive status probes",
+      "register/status reply isolation"
+    ],
+    "exact_old_wheel_rebuild_verified": false
+  },
+  "previous_build_manifest": "BUILD_MANIFEST_0.1.10.json"
+}

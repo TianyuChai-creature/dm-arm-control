@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <map>
+#include <limits>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -64,6 +65,7 @@ void DmSerialBackend::connect()
     return;
   }
 
+  disabled_confirmed_ = false;
   std::lock_guard<std::mutex> registry_lock(registry_mutex);
   static std::map<std::string, std::weak_ptr<SharedBus>> buses;
   const std::string key = std::to_string(config_.device_index);
@@ -112,6 +114,7 @@ void DmSerialBackend::enable()
   if (maintenance_unknown_ || shutdown_unknown_)
     throw std::runtime_error("motor state unknown; enable blocked pending recovery");
   enable_baseline_.clear();
+  disabled_confirmed_ = false;
   enabled_ = true;  // A partially enabled side must still be disabled on failure.
   try {
     for (const auto& m : config_.motors) {
@@ -155,6 +158,7 @@ void DmSerialBackend::disable()
       throw std::runtime_error("disable status unconfirmed; motor state unknown");
     }
     enabled_ = false;
+    disabled_confirmed_ = true;
     shutdown_unknown_ = false;
     enable_baseline_.clear();
   }
@@ -419,4 +423,103 @@ std::vector<MotorState> DmSerialBackend::states() const
   return result;
 }
 
+std::vector<double> DmSerialBackend::verify_calibration_configuration() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!control_ || enabled_ || shutdown_unknown_ || maintenance_unknown_)
+    throw std::runtime_error("calibration requires disabled motors with known state");
+  // Encoding ranges come from the station-confirmed model configuration.
+  return read_disabled_positions_locked();
+}
+
+std::vector<double> DmSerialBackend::read_disabled_positions_locked(const std::vector<double>& expected) {
+  constexpr double tolerance = 3.14159265358979323846 / 180;
+  if (!expected.empty() && expected.size() != config_.motors.size())
+    throw std::invalid_argument("angle readback target count mismatch");
+  std::vector<std::uint64_t> before;
+  for (const auto& m : config_.motors)
+    before.push_back(control_->getMotorFeedback(m.can_id).rx_sequence);
+  std::vector<double> positions(config_.motors.size());
+  std::vector<bool> received(config_.motors.size(), false);
+  auto next_query = std::chrono::steady_clock::now();
+  const auto deadline = next_query + std::chrono::seconds(1);
+  while (std::chrono::steady_clock::now() < deadline) {
+    for (std::size_t i=0; i<config_.motors.size(); ++i) {
+      if (received[i]) continue;
+      const auto& m = config_.motors[i];
+      const auto feedback = control_->getMotorFeedback(m.can_id);
+      if (feedback.rx_sequence <= before[i] || feedback.last_rx_age_s > .2) continue;
+      if (feedback.error_code != 0 || !std::isfinite(feedback.position))
+        throw std::runtime_error("disabled angle feedback invalid: CAN ID=" + std::to_string(m.can_id));
+      if (!expected.empty() && std::abs(feedback.position - expected[i]) >= tolerance)
+        throw std::runtime_error("angle readback position mismatch: CAN ID=" + std::to_string(m.can_id));
+      positions[i] = feedback.position;
+      received[i] = true;
+    }
+    if (std::chrono::steady_clock::now() >= deadline) break;
+    if (std::all_of(received.begin(), received.end(), [](bool value){return value;})) return positions;
+    if (std::chrono::steady_clock::now() >= next_query) {
+      for (std::size_t i=0; i<config_.motors.size(); ++i)
+        if (!received[i]) control_->refresh_motor_status(*control_->getMotor(config_.motors[i].can_id));
+      next_query = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  throw std::runtime_error("angle readback timed out: missing motor feedback within 1s window");
+}
+
+void DmSerialBackend::commit_calibration(const std::vector<double>& zeros,
+    const std::atomic<bool>& cancel,
+    const std::function<void(std::size_t, const std::string&)>& progress) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  constexpr double tolerance = 3.14159265358979323846 / 180;
+  if (!control_ || enabled_ || !disabled_confirmed_ || shutdown_unknown_ || maintenance_unknown_)
+    throw std::runtime_error("zero commit requires confirmed disabled motors");
+  if (zeros.size() != config_.motors.size() ||
+      std::any_of(zeros.begin(), zeros.end(), [](double q){ return !std::isfinite(q); }))
+    throw std::invalid_argument("invalid zero positions");
+  auto expected = zeros;
+  bool changed = false, checking_stability = true;
+  std::vector<double> minimum(zeros.size(), std::numeric_limits<double>::infinity());
+  std::vector<double> maximum(zeros.size(), -std::numeric_limits<double>::infinity());
+  std::vector<std::chrono::steady_clock::time_point> first_seen(zeros.size());
+  std::vector<double> observed_for(zeros.size(), 0);
+  auto check = [&] {
+    if (cancel) throw std::runtime_error("zero calibration cancelled");
+    const auto positions = read_disabled_positions_locked(expected);
+    for (std::size_t i=0; i<expected.size(); ++i) {
+      if (cancel) throw std::runtime_error("zero calibration cancelled");
+      const auto& m = config_.motors[i];
+      const double actual = positions[i];
+      if (checking_stability) {
+        const auto now = std::chrono::steady_clock::now();
+        if (std::isinf(minimum[i])) first_seen[i] = now;
+        observed_for[i] = std::chrono::duration<double>(now-first_seen[i]).count();
+        minimum[i] = std::min(minimum[i], actual); maximum[i] = std::max(maximum[i], actual);
+      }
+      if (std::abs(actual - expected[i]) >= tolerance || maximum[i]-minimum[i] >= tolerance)
+        throw std::runtime_error("disabled zero position drift: CAN ID=" + std::to_string(m.can_id));
+    }
+    if (cancel) throw std::runtime_error("zero calibration cancelled");
+  };
+  try {
+    do { check(); std::this_thread::sleep_for(std::chrono::milliseconds(20)); }
+    while (std::any_of(observed_for.begin(), observed_for.end(), [](double t){return t < 1;}));
+    checking_stability = false;
+    for (std::size_t i=0; i<expected.size(); ++i) {
+      // Recheck the entire station after each axis changes coordinate systems.
+      check();
+      auto motor = control_->getMotor(config_.motors[i].can_id);
+      progress(i, "UNKNOWN"); changed = true;
+      control_->set_zero_position(*motor);
+      control_->save_motor_param(*motor);
+      expected[i] = 0;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+    check();
+    for (std::size_t i=0; i<expected.size(); ++i) progress(i, "SAVED");
+  } catch (...) {
+    if (changed) maintenance_unknown_ = true;
+    throw;
+  }
+}
 }  // namespace dm_openarm::backend

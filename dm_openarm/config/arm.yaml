@@ -13,17 +13,17 @@ usb:
 left:
   motors:
     - name: L_end_effector
-      model: DM4310
+      model: DM4340P
       mode: MIT
       can_id: 0x04
       mst_id: 0x14
     - name: L_wrist_2
-      model: DM4310
+      model: DM4340P
       mode: MIT
       can_id: 0x02
       mst_id: 0x12
     - name: L_wrist_3
-      model: DM4310
+      model: DM4340P
       mode: MIT
       can_id: 0x03
       mst_id: 0x13
@@ -41,17 +41,17 @@ left:
 right:
   motors:
     - name: R_end_effector
-      model: DM4310
+      model: DM4340P
       mode: MIT
       can_id: 0x09
       mst_id: 0x19
     - name: R_wrist_2
-      model: DM4310
+      model: DM4340P
       mode: MIT
       can_id: 0x08
       mst_id: 0x18
     - name: R_wrist_3
-      model: DM4310
+      model: DM4340P
       mode: MIT
       can_id: 0x07
       mst_id: 0x17

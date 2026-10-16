@@ -133,6 +133,7 @@ void test_default_config_loads()
   {
     assert(config.motors[i].can_id == expected_can[i]);
     assert(config.motors[i].mst_id == expected_mst[i]);
+    assert(config.motors[i].model == (expected_can[i] % 5 < 2 ? dm_openarm::MotorModel::DM8009 : dm_openarm::MotorModel::DM4340P));
   }
   assert(config.motors[3].model == dm_openarm::MotorModel::DM8009);
 }

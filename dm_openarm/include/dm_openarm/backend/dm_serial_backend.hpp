@@ -6,6 +6,8 @@
 #include "protocol/damiao.h"
 
 #include <cstdint>
+#include <atomic>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -34,7 +36,12 @@ public:
   std::vector<MotorState> states() const;
   std::vector<std::uint16_t> probe_status(double timeout_s);
 
+  std::vector<double> verify_calibration_configuration();
+  void commit_calibration(const std::vector<double>& zeros, const std::atomic<bool>& cancel,
+                          const std::function<void(std::size_t, const std::string&)>& progress);
+
 private:
+  std::vector<double> read_disabled_positions_locked(const std::vector<double>& expected = {});
   static damiao::DM_Motor_Type to_damiao_model(MotorModel model);
   void verify_set_zero_ready(std::uint16_t can_id) const; // mutex_ held
   void set_zero_locked(std::uint16_t can_id, bool persist, bool verify); // mutex_ held
@@ -45,6 +52,7 @@ private:
   mutable std::mutex mutex_;
   std::shared_ptr<damiao::Motor_Control> control_;
   bool enabled_{false};
+  bool disabled_confirmed_{false};
   bool shutdown_unknown_{false};
   bool maintenance_unknown_{false};
   std::vector<std::uint64_t> enable_baseline_;
