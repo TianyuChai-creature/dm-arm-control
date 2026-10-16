@@ -1,6 +1,9 @@
 # dm_openarm 使用说明
 
-当前发行版本：**0.1.12**。
+当前发行版本：**0.1.13**。
+
+本版统一设零、被动扫描、停止状态及空命令行为，升级说明见
+[0.1.13 更新日志](../dist/RELEASE_NOTES_0.1.13.md)，整体架构见[根目录 README](../README.md#架构怎么用-api)。
 
 `dm_openarm` 是一个面向当前 5 自由度达妙机械臂的 C++17 控制库，并提供
 Python API。底层复用达妙 USB-CANFD SDK，当前版本只封装 MIT 模式。
@@ -315,10 +318,38 @@ arm.disable()
 - `persist=True`：把当前位置设置为零位，并保存到电机 flash。
 - `persist=False`：只做临时设零，不保证程序结束或断电后保持。
 
+两种模式均要求已停止控制循环、目标轴失能，并验证新的 status-0 运动反馈。
+SDK 主动查询并观察至少 300 ms、三个不同接收样本；样本至少间隔 20 ms，
+速度绝对值不超过 0.05 rad/s、位置极差不超过 0.005 rad、反馈年龄不超过 0.2 s。
+每个观察阶段最多等待 1 s，反馈中断重新累计静止窗口。这些静止阈值需实机工位验收。
+设零结束保持失能，不再自动重新使能；失能期间机械支撑要求与标定保存相同。
+
+单轴、整臂及 `Limb.set_zero_all()` 均使用同一原生批量实现：全部目标先检查，
+每轴写入前再复查。预检查失败不写入；开始写入后失败会锁存坐标未知，
+异常包含失败 CAN ID、已完成数量和 ID，不自动回滚或重发写入。
+
 重要区别：
 
 - `set_zero(...)` 是“把当前位置写成新的零位”。
 - `start_mit_loop(..., home=True)` 才会运动到已保存零位 `q=0`，不是重新设置零位。
+
+### 命令任务与停止状态
+
+`command_timeout` 监护当前 `Arm` 的整张命令表，任一非空有效局部更新都会续期；
+相同的有效目标也可续期。空字典和非法更新不续期，也不增加接受序号。
+一个控制任务负责整张表；`left`/`right` 视图不构成独立超时域。
+左右控制任务若独立运行，应分别创建 `Arm.from_yaml(path, side="left")` 和
+`Arm.from_yaml(path, side="right")`，各自启动 guarded 循环，底层共享 USB 连接。
+
+正常停止并确认失能后，`safety_state` 为 `DISABLED`；执行故障随后失能成功为 `FAULT`；
+失能未确认为 `SHUTDOWN_UNKNOWN`。重复停止保留故障。停止清除可执行的旧目标和 seed，
+保留最后循环发送快照用于诊断；重新 guarded 启动从新反馈取当前位置。
+兼容裸入口在正常停止后保持无 CommandGuard 的语义，不继承旧保持目标；故障锁存后不能
+通过裸入口绕过保护，须检查设备状态后显式使用 guarded 启动。
+
+在线扫描脚本默认只调用被动连接和查询；`ONLINE` 仅表示收到查询应答，不判定驱动健康或机械状态。
+`read_states.py` 与 `link_test.py` 为主动反馈诊断，会使能并发送零 MIT。
+诊断脚本在关闭完成后才报告成功，读取与关闭同时失败时保留两个错误并返回非零退出码。
 
 默认建议使用 `persist=True`，这样零位会在后续 Python/C++ 程序和断电重启后保持。
 但不要频繁反复写 flash；只在机械零位确认正确后执行。
@@ -567,7 +598,7 @@ target_link_libraries(my_app PRIVATE dm_openarm)
 `HOLD` 是保护逻辑状态，机械稳定需要另行验证。Ctrl+C／`disable()` 不能替代独立硬件急停。
 停止失败时保留异常；`SHUTDOWN_UNKNOWN`／`shutdown unknown` 表示失能未确认，必须人工处置，禁止自动恢复。
 
-0.1.12 的源码提交、构建环境、验证记录和 wheel hash 见 [`../dist/BUILD_MANIFEST.json`](../dist/BUILD_MANIFEST.json)。
+0.1.13 的源码提交、构建环境、验证记录和 wheel hash 见 [`../dist/BUILD_MANIFEST.json`](../dist/BUILD_MANIFEST.json)。
 
 ### Python 双臂自动零位标定
 

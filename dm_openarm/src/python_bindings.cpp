@@ -124,8 +124,12 @@ NB_MODULE(_core, m)
       "set_zero",
       &dm_openarm::DmArm::set_zero,
       nb::arg("can_id"),
-      nb::arg("persist") = true)
-    .def("set_zero_all", &dm_openarm::DmArm::set_zero_all, nb::arg("persist") = true)
+      nb::arg("persist") = true, nb::call_guard<nb::gil_scoped_release>())
+    .def("set_zero_all", &dm_openarm::DmArm::set_zero_all, nb::arg("persist") = true,
+         nb::call_guard<nb::gil_scoped_release>())
+    .def("_set_zero_many", &dm_openarm::DmArm::set_zero_many,
+         nb::arg("can_ids"), nb::arg("persist") = true,
+         nb::call_guard<nb::gil_scoped_release>())
     .def("states", &dm_openarm::DmArm::states, nb::call_guard<nb::gil_scoped_release>());
 
   nb::class_<dm_openarm::MitLoopController>(m, "MitLoopController")
@@ -165,6 +169,7 @@ NB_MODULE(_core, m)
       nb::arg("commands"), nb::call_guard<nb::gil_scoped_release>())
     .def("commands", &dm_openarm::MitLoopController::commands)
     .def("sent_commands", &dm_openarm::MitLoopController::sent_commands)
+    .def("_shutdown_failed", &dm_openarm::MitLoopController::shutdown_failed, nb::arg("reason"))
     .def("_begin_calibration", &dm_openarm::MitLoopController::begin_calibration,
          nb::call_guard<nb::gil_scoped_release>())
     .def("_calibration_update", &dm_openarm::MitLoopController::calibration_update,

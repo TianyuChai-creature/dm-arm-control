@@ -88,6 +88,7 @@ def test_native_partial_validation_is_atomic() -> None:
 def test_disable_failure_does_not_disconnect() -> None:
     arm = object.__new__(Arm)
     arm._arm = MagicMock()
+    arm._loop = MagicMock()
     arm.stop_mit_loop = MagicMock(side_effect=RuntimeError("loop failed"))
     arm._arm.disable.side_effect = RuntimeError("status unconfirmed")
     try:
@@ -95,6 +96,62 @@ def test_disable_failure_does_not_disconnect() -> None:
         assert False, "expected unknown shutdown"
     except RuntimeError as exc:
         assert "shutdown unknown" in str(exc) and "loop failed" in str(exc)
+    arm._arm.disconnect.assert_not_called()
+    arm._loop._shutdown_failed.assert_called_once()
+    assert "status unconfirmed" in arm._loop._shutdown_failed.call_args.args[0]
+
+
+def test_empty_python_update_never_reaches_native_loop() -> None:
+    arm = object.__new__(Arm)
+    arm._arm = MagicMock()
+    arm._loop = MagicMock()
+    try:
+        arm.mit({})
+        assert False, "expected empty update rejection"
+    except ValueError:
+        pass
+    arm._loop.set_commands.assert_not_called()
+
+
+def test_limb_zero_batch_reaches_native_once() -> None:
+    arm = object.__new__(Arm)
+    arm._arm = MagicMock()
+    arm._set_zero_many([1, 2], persist=False)
+    arm._arm._set_zero_many.assert_called_once_with([1, 2], False)
+
+
+def test_native_empty_update_preserves_sequence_and_commands() -> None:
+    config = _core.ArmConfig()
+    motor = _core.MotorConfig()
+    motor.can_id, motor.mst_id = 1, 17
+    config.motors = [motor]
+    arm = _core.DmArm(config)
+    loop = _core.MitLoopController(arm)
+    loop.set_commands({1: _core.MitCommand(kp=10, q=0.3)})
+    for submit in (lambda: loop.set_commands({}), lambda: loop.set_all_commands([])):
+        try:
+            submit()
+            assert False, "expected native empty update rejection"
+        except ValueError:
+            pass
+        assert loop.accepted_sequence() == 1
+        assert loop.commands()[0].q == 0.3
+
+
+def test_device_disable_failure_publishes_native_unknown_state() -> None:
+    device = _core.DmArm(_core.ArmConfig())  # Never connects to USB.
+    arm = object.__new__(Arm)
+    arm._loop = _core.MitLoopController(device)
+    arm._arm = MagicMock()
+    arm._arm.disable.side_effect = RuntimeError("status unconfirmed")
+    for _ in range(2):
+        try:
+            arm.disable()
+            assert False, "expected unconfirmed shutdown"
+        except RuntimeError:
+            pass
+        assert arm.safety_state == "SHUTDOWN_UNKNOWN"
+        assert "status unconfirmed" in arm.fault
     arm._arm.disconnect.assert_not_called()
 
 

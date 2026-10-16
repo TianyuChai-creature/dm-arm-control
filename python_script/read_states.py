@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""持续读取各轴反馈状态，Ctrl+C 退出（不回零、不施加力矩）。"""
+"""主动反馈诊断：使能电机并发送零 MIT，Ctrl+C 请求停止。"""
 from __future__ import annotations
 
 import time
@@ -9,6 +9,7 @@ from dm_openarm import Arm
 
 def main() -> int:
     arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
+    result = 0
     try:
         arm.enable()
         print(
@@ -35,13 +36,17 @@ def main() -> int:
                 )
             time.sleep(0.05)  # ~20 Hz 打印
     except KeyboardInterrupt:
-        print("\n已退出", flush=True)
-        return 0
+        print("\n停止请求已收到", flush=True)
+    except Exception as exc:
+        print(f"读取失败：{exc}", flush=True)
+        result = 1
     finally:
         try:
             arm.disable()
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"关闭失败：{exc}", flush=True)
+            result = 2
+    return result
 
 
 if __name__ == "__main__":

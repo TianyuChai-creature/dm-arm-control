@@ -19,6 +19,14 @@ def test_limb_rejects_foreign_can() -> None:
         assert "0x05" in str(e)
 
 
+def test_limb_zero_all_submits_one_native_batch() -> None:
+    arm = MagicMock()
+    limb = Limb(arm, "left", [0, 1], ["a", "b"])
+    limb.set_zero_all(persist=False)
+    arm._set_zero_many.assert_called_once_with([0, 1], persist=False)
+    arm.set_zero.assert_not_called()
+
+
 if __name__ == "__main__":
     test_limb_rejects_foreign_can()
     arm = MagicMock()

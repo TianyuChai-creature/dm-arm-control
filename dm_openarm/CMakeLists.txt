@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(dm_openarm VERSION 0.1.12 LANGUAGES CXX)
+project(dm_openarm VERSION 0.1.13 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -9,6 +9,11 @@ find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUSB REQUIRED IMPORTED_TARGET libusb-1.0)
 find_package(yaml-cpp REQUIRED)
+if(TARGET yaml-cpp::yaml-cpp)
+  set(DM_OPENARM_YAML_TARGET yaml-cpp::yaml-cpp)
+else()
+  set(DM_OPENARM_YAML_TARGET yaml-cpp)
+endif()
 
 include(CTest)
 if(BUILD_TESTING)
@@ -67,7 +72,7 @@ target_link_libraries(
   dm_openarm
   PUBLIC
     damiao_sdk
-    yaml-cpp
+    ${DM_OPENARM_YAML_TARGET}
 )
 set_target_properties(
   dm_openarm

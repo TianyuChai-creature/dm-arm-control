@@ -33,6 +33,7 @@ public:
   void send_zero_mit_all();
   void set_zero(std::uint16_t can_id, bool persist = true);
   void set_zero_all(bool persist = true);
+  void set_zero_many(const std::vector<std::uint16_t>& can_ids, bool persist = true);
   std::vector<MotorState> states() const;
   std::vector<std::uint16_t> probe_status(double timeout_s);
 
@@ -43,8 +44,7 @@ public:
 private:
   std::vector<double> read_disabled_positions_locked(const std::vector<double>& expected = {});
   static damiao::DM_Motor_Type to_damiao_model(MotorModel model);
-  void verify_set_zero_ready(std::uint16_t can_id) const; // mutex_ held
-  void set_zero_locked(std::uint16_t can_id, bool persist, bool verify); // mutex_ held
+  void verify_set_zero_ready(const std::vector<std::uint16_t>& can_ids) const; // mutex_ held
 
   ArmConfig config_;
   struct SharedBus;

@@ -54,10 +54,13 @@ public:
   void cancel_calibration() noexcept { calibration_cancelled_ = true; }
   bool calibration_cancelled() const noexcept { return calibration_cancelled_; }
   std::vector<std::string> calibration_saves() const;
+  // Internal bridge for a device-level disable/disconnect failure in Python.
+  void shutdown_failed(const std::string& reason);
 
 private:
   void start_impl(double hz, bool calibration);
   void stop_impl();
+  void finish_stop(const std::string& failure, bool shutdown_unknown);
   void release_calibration();
   void require_idle() const;
   std::size_t motor_index(std::uint16_t can_id) const;

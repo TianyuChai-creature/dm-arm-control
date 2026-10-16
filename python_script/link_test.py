@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""联通测试：通过 dm_openarm API 检查 5 轴是否有反馈（不对机械臂做回零/大运动）。"""
+"""主动反馈诊断：使能电机并发送零 MIT；仅查在线请用 scan_motors_online.py。"""
 from __future__ import annotations
 
 import time
@@ -10,6 +10,7 @@ from dm_openarm import Arm
 def main() -> int:
     arm = Arm.from_yaml("dm_openarm/config/arm.yaml")
     print("=== dm_openarm link_test ===", flush=True)
+    result = 0
     try:
         arm.enable()
         hits = 0
@@ -30,25 +31,33 @@ def main() -> int:
 
         if last is None:
             print("FAIL: no motor feedback", flush=True)
-            return 3
-        if int(last.error_code) != 0:
+            result = 3
+        elif int(last.error_code) != 0:
             print(f"FAIL: motor error_code={last.error_code}", flush=True)
-            return 4
-
-        print("PASS: motor feedback received — link OK", flush=True)
-        print(
-            f"  sample can_id=0x{last.can_id:02X} pos={last.position:.4f} "
-            f"vel={last.velocity:.4f} tau={last.torque:.4f} "
-            f"age={last.last_rx_age_s:.4f}s err={last.error_code} "
-            f"hits={hits}",
-            flush=True,
-        )
-        return 0
+            result = 4
+        else:
+            print(
+                f"  sample can_id=0x{last.can_id:02X} pos={last.position:.4f} "
+                f"vel={last.velocity:.4f} tau={last.torque:.4f} "
+                f"age={last.last_rx_age_s:.4f}s err={last.error_code} "
+                f"hits={hits}",
+                flush=True,
+            )
+    except KeyboardInterrupt:
+        print("FAIL: diagnostic interrupted", flush=True)
+        result = 130
+    except Exception as exc:
+        print(f"FAIL: diagnostic failed: {exc}", flush=True)
+        result = 1
     finally:
         try:
             arm.disable()
-        except Exception:
-            pass
+        except Exception as exc:
+            print(f"FAIL: shutdown failed: {exc}", flush=True)
+            result = 2
+    if result == 0:
+        print("PASS: motor feedback received; connection closed", flush=True)
+    return result
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # dm_openarm SDK 使用指南
 
-当前发行版本：**0.1.12**。带原生执行保护的用法：
+当前发行版本：**0.1.13**。带原生执行保护的用法：
 
 ```python
 arm.enable_seeded(gains, hz=250, command_timeout=0.1, feedback_timeout=0.2)
@@ -20,19 +20,30 @@ arm.hold(reset_fault=True)     # 显式解除超时锁存，仍保持
 
 ## 安装
 
-当前 wheel 适用于 **CPython 3.13 / Linux x86_64**，在 Ubuntu 24.04.5 构建。
-依赖系统 `libyaml-cpp.so.0.8`、`libusb-1.0.so.0`，以及 glibc ≥ 2.38 和提供 `GLIBCXX_3.4.29` 的 C++ 运行库。
+当前 wheel 适用于 **CPython 3.13 / Linux x86_64**，在 Ubuntu 24.04 隔离环境构建。
+依赖系统 `libyaml-cpp.so.0.8`、`libusb-1.0.so.0` 和 GNU C/C++ 运行库；精确符号版本与构建环境见 `BUILD_MANIFEST.json`。
 它不是 manylinux 包，不能仅凭 Linux x86_64 标签推定其他发行版可用。
 其他 Python 版本或不满足系统库要求的平台需要重新构建 wheel。
 
 安装当前目录下的 wheel：
 
 ```bash
-python -m pip install dm_openarm-0.1.12-cp313-cp313-linux_x86_64.whl
+python -m pip install dm_openarm-0.1.13-cp313-cp313-linux_x86_64.whl
 ```
 
 guarded 启动默认 **250 Hz**，兼容入口默认 1000 Hz，最高支持 1000 Hz。
 频率不从 YAML 读取；运行时通过 `enable_seeded(..., hz=...)` 显式指定。
+
+## 0.1.13 升级要点
+
+- 两种 `persist` 模式均要求失能及连续静止反馈，不再保存后自动重新使能。
+- 单轴、单侧和整臂共用原生批量设零；部分写入失败锁存坐标未知，不自动重试或回滚。
+- 在线扫描默认被动查询；诊断脚本关闭失败返回非零状态。
+- 停止后清除可执行旧目标，保留故障；正常失能为 `DISABLED`，故障为 `FAULT`，失能未确认为 `SHUTDOWN_UNKNOWN`。
+- `mit({})` 被拒绝；一个 `Arm` 的命令期限由一个控制任务负责，左右独立任务使用两个单侧 `Arm`。
+- 新静止阈值与本版流程只完成离线验证，尚未实机验收。
+
+完整变更见 [RELEASE_NOTES_0.1.13.md](RELEASE_NOTES_0.1.13.md)。
 
 ## 电机部位与 ID 对照
 
@@ -43,14 +54,14 @@ ID；如更换电机或总线配置，请先修改 YAML。
 | --- | --- | --- | --- | --- |
 | 左手 | `L_shoulder` | DM8009 | `0x00` | `0x10` |
 | 左手 | `L_elbow` | DM8009 | `0x01` | `0x11` |
-| 左手 | `L_wrist_2` | DM4310 | `0x02` | `0x12` |
-| 左手 | `L_wrist_3` | DM4310 | `0x03` | `0x13` |
-| 左手 | `L_end_effector` | DM4310 | `0x04` | `0x14` |
+| 左手 | `L_wrist_2` | DM4340P | `0x02` | `0x12` |
+| 左手 | `L_wrist_3` | DM4340P | `0x03` | `0x13` |
+| 左手 | `L_end_effector` | DM4340P | `0x04` | `0x14` |
 | 右手 | `R_shoulder` | DM8009 | `0x05` | `0x15` |
 | 右手 | `R_elbow` | DM8009 | `0x06` | `0x16` |
-| 右手 | `R_wrist_3` | DM4310 | `0x07` | `0x17` |
-| 右手 | `R_wrist_2` | DM4310 | `0x08` | `0x18` |
-| 右手 | `R_end_effector` | DM4310 | `0x09` | `0x19` |
+| 右手 | `R_wrist_3` | DM4340P | `0x07` | `0x17` |
+| 右手 | `R_wrist_2` | DM4340P | `0x08` | `0x18` |
+| 右手 | `R_end_effector` | DM4340P | `0x09` | `0x19` |
 
 也可以从配置对象读取当前映射，避免在应用里重复维护 ID：
 
@@ -166,7 +177,7 @@ Ctrl+C／`disable()` 只触发软件停止与失能。失能失败或未确认�
 
 版本同时定义于 Python 包、项目元数据和 CMake，发布前必须一致。先提交源码与文档，
 取得干净源码提交，再用 `git archive` 导出该提交构建，避免混入旧扩展或工作区临时文件。
-0.1.12 的实际环境、完整命令、源码提交、验证结果及 SHA-256 见 [BUILD_MANIFEST.json](BUILD_MANIFEST.json)。
+0.1.13 的实际环境、完整命令、源码提交、验证结果及 SHA-256 见 [BUILD_MANIFEST.json](BUILD_MANIFEST.json)。
 wheel 校验和另见 [SHA256SUMS](SHA256SUMS)，在 `dist/` 执行 `sha256sum -c SHA256SUMS` 可校验已列出的所有版本。
 
 ```bash
@@ -177,7 +188,7 @@ mkdir /tmp/dm-openarm-source
 git archive "$(python -c 'import json; print(json.load(open("dist/BUILD_MANIFEST.json"))["source"]["source_commit"])')" | tar -x -C /tmp/dm-openarm-source
 cd /tmp/dm-openarm-source/dm_openarm
 python -I -m build --wheel --no-isolation --outdir /tmp/dm-openarm-artifacts \
-  -Cbuild-dir=/tmp/dm-openarm-wheel-0.1.12
+  -Cbuild-dir=/tmp/dm-openarm-wheel-0.1.13
 ```
 
 构建目录须为空并事先创建导出目录。记录编译器、系统库、Python 构建依赖、SDK 输入文件与
