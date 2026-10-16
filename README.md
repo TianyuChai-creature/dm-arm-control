@@ -34,12 +34,12 @@ python python_script/scan_motors_online.py
 python -m build --wheel --no-isolation --outdir dist dm_openarm
 ```
 
-当前版本 **0.1.13**，发布 wheel 适用于 **CPython 3.13 / Linux x86_64**。wheel、构建记录和安装说明位于 `dist/`；可追溯构建步骤见
+当前版本 **0.1.14**，发布 wheel 适用于 **CPython 3.13 / Linux x86_64**。wheel、构建记录和安装说明位于 `dist/`；可追溯构建步骤见
 [`dist/USAGE_GUIDE.md`](dist/USAGE_GUIDE.md#构建与来源记录)。guarded 启动默认 **250 Hz**，
 兼容裸入口默认 1000 Hz；最高支持 1000 Hz，频率均由运行时参数指定。
 
-0.1.13 统一设零检查与批量保护、改用被动在线扫描、修正停止状态，并拒绝空 MIT 更新。
-兼容性变化、验证范围与升级说明见 [更新日志](dist/RELEASE_NOTES_0.1.13.md)。
+0.1.14 修正只读在线查询：`0xCC` 查询按官方标准接收八字节状态反馈，失能或报警电机也可报告在线；不再等待四字节回显。
+兼容性变化、验证范围与升级说明见 [更新日志](dist/RELEASE_NOTES_0.1.14.md)。
 
 ---
 
@@ -95,7 +95,7 @@ flowchart TB
 - **C：Loop / Guard**：guarded 默认 250 Hz；启动从新鲜反馈保持当前位置，停止统一进入终态，重启重新取位。
 - **D / E：设备与总线**：单轴、单侧、整臂设零均调用同一个原生批量实现，统一检查失能与连续静止反馈。
 - **E：SharedBus**：两个 `Arm.from_yaml(..., side=...)` 可共享 USB 连接，各自持有独立控制循环和命令期限。
-- **F：协议与驱动**：MIT 编码、状态解码、USB 收发；发送成功表示接口已提交，不等于机械动作确认。
+- **F：协议与驱动**：MIT 编码、状态解码、USB 收发；`0xCC` 查询复用正常状态反馈，后端按逐轴新接收序号判断在线。发送成功表示接口已提交，不等于机械动作确认。
 
 ---
 

@@ -1,9 +1,9 @@
 # dm_openarm 使用说明
 
-当前发行版本：**0.1.13**。
+当前发行版本：**0.1.14**。
 
-本版统一设零、被动扫描、停止状态及空命令行为，升级说明见
-[0.1.13 更新日志](../dist/RELEASE_NOTES_0.1.13.md)，整体架构见[根目录 README](../README.md#架构怎么用-api)。
+本版修正被动查询的回复识别，沿用既有设零、停止状态及空命令保护，升级说明见
+[0.1.14 更新日志](../dist/RELEASE_NOTES_0.1.14.md)，整体架构见[根目录 README](../README.md#架构怎么用-api)。
 
 `dm_openarm` 是一个面向当前 5 自由度达妙机械臂的 C++17 控制库，并提供
 Python API。底层复用达妙 USB-CANFD SDK，当前版本只封装 MIT 模式。
@@ -65,7 +65,7 @@ YAML 后不需要重新编译；修改 C++ 或 Python 包代码后才需要重�
 | 对象 | API | 作用 |
 | --- | --- | --- |
 | `Arm` | `from_yaml(path, side=None)` | 加载双臂或指定单臂配置，不连接设备 |
-| `Arm` | `connect_passive()` / `probe_status(timeout_s=0.2)` | 打开 USB 后逐个只读查询 CAN ID，不使能电机；返回有回复的 ID |
+| `Arm` | `connect_passive()` / `probe_status(timeout_s=0.2)` | 打开 USB 后逐个只读查询 CAN ID，不使能电机；返回收到新八字节状态反馈的 ID |
 | `Arm` | `enable()` / `disable()` | 连接并使能 / 停止并失能 |
 | `Arm` | `enable_seeded(gains, hz=250, ...)` | 原生 seed，首次完整保持批次提交成功后返回 |
 | `Arm` | `states()` | 读取全总线状态 |
@@ -82,6 +82,8 @@ YAML 后不需要重新编译；修改 C++ 或 Python 包代码后才需要重�
 | `Limb` | `mit(...)` | 本侧 MIT 命令 |
 | `Limb` | `commands()` | 读取本侧当前命令 |
 | `Limb` | `set_zero(...)` / `set_zero_all(...)` | 设置本侧零位 |
+
+`probe_status()` 发送只读 `0xCC` 查询，以每轴发出查询前的接收序号为基线，返回收到新标准八字节状态反馈的 CAN ID，同时更新 `states()`。失能或报警状态也表示在线，不代表健康、已使能或取得使能确认。四字节请求回显、参数/保存回复、长度或身份/通道不匹配的帧不会被算作状态反馈。协议没有请求序号，查询期间到达的延迟或主动状态反馈无法与本次请求严格关联。
 
 基础类型：`MitCommand(kp, kd, q, dq, tau)`、`MotorConfig`、`MotorState`、
 `MotorTimingStats`、`TimingStats`、`ArmConfig`、`MotorModel` 和 `ControlMode`。`MotorState.feedback_fresh(0.1)`
@@ -598,7 +600,7 @@ target_link_libraries(my_app PRIVATE dm_openarm)
 `HOLD` 是保护逻辑状态，机械稳定需要另行验证。Ctrl+C／`disable()` 不能替代独立硬件急停。
 停止失败时保留异常；`SHUTDOWN_UNKNOWN`／`shutdown unknown` 表示失能未确认，必须人工处置，禁止自动恢复。
 
-0.1.13 的源码提交、构建环境、验证记录和 wheel hash 见 [`../dist/BUILD_MANIFEST.json`](../dist/BUILD_MANIFEST.json)。
+0.1.14 的源码提交、构建环境、验证记录和 wheel hash 见 [`../dist/BUILD_MANIFEST.json`](../dist/BUILD_MANIFEST.json)。
 
 ### Python 双臂自动零位标定
 
