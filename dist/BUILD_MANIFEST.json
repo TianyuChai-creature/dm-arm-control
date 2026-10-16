@@ -1,67 +1,55 @@
 {
-  "release": "0.1.12",
-  "base_release": "0.1.11",
+  "release": "0.1.13",
+  "base_release": "0.1.12",
   "source": {
-    "source_commit": "684301358dd11f7dc95e23ba51c6d370f8418172",
-    "source_tree": "93878ad91d77836c4fd3d9e09d2bb293eaed878e",
-    "source_archive_sha256": "6c7a6fc0755ae9da5e18f1a1c895ebadae8f795193c440b09c76d05f3ea3114c",
+    "source_commit": "304fdbf15082cc8f3f55be6a0807a94cfc67c4ea",
+    "source_tree": "45a70202bd51daef09bf44fe46a33993c1efe974",
+    "source_archive_sha256": "d5af56626e1444b4fcec667c641a1e475dc988acac0bcfab9ef27d28bab47390",
     "source_dirty_at_build_start": false,
-    "source_directory": "/tmp/dm-openarm-0.1.12-source-clean"
+    "source_directory": "/source"
   },
   "build": {
+    "environment": "isolated Ubuntu 24.04 Docker container",
+    "container_image": "ubuntu@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55",
     "command": [
-      "/tmp/dm-openarm-0.1.12-build-env/bin/python",
+      "/work/build-env/bin/python",
       "-I",
       "-m",
       "build",
       "--wheel",
       "--no-isolation",
       "--outdir",
-      "/home/creature/Desktop/workspace/Project-Retargeting/dm-arm-control/dist",
-      "-Cbuild-dir=/tmp/dm-openarm-0.1.12-wheel-build-clean",
-      "/tmp/dm-openarm-0.1.12-source-clean/dm_openarm"
+      "/work/dist",
+      "-Cbuild-dir=/work/wheel-build",
+      "/source/dm_openarm"
     ],
-    "environment_unset": [
-      "PKG_CONFIG_SYSROOT_DIR",
-      "PKG_CONFIG_LIBDIR",
-      "PKG_CONFIG_PATH",
-      "CMAKE_TOOLCHAIN_FILE",
-      "CMAKE_PREFIX_PATH",
-      "CFLAGS",
-      "CXXFLAGS",
-      "CPPFLAGS",
-      "LDFLAGS",
-      "SDKROOT",
-      "_PYTHON_SYSCONFIGDATA_NAME",
-      "PYTHONPATH",
-      "PYTHONHOME"
-    ],
+    "script_sha256": "b8f8aad408cbc26f80e056e7e7131ac668ed8bbc08f87d140997ead3b2b5c53e",
+    "script": "#!/usr/bin/env bash\nset -euo pipefail\nexport DEBIAN_FRONTEND=noninteractive\nexport UV_CACHE_DIR=/work/uv-cache\nexport PYTHONDONTWRITEBYTECODE=1\nexport CC=/usr/bin/gcc CXX=/usr/bin/g++ CMAKE_BUILD_PARALLEL_LEVEL=4\napt-get update -qq\napt-get install -y --no-install-recommends build-essential cmake ninja-build pkg-config libyaml-cpp-dev libusb-1.0-0-dev ca-certificates\nuv python install 3.13.13 --no-bin --install-dir /work/python\nuv venv --python /work/python/cpython-3.13.13-linux-x86_64-gnu/bin/python3.13 /work/build-env\nuv pip install --python /work/build-env/bin/python build==1.6.1 scikit-build-core==1.1.1 nanobind==3.1.0 pytest==9.1.1\ncmake -S /source/dm_openarm -B /work/debug -G Ninja -DCMAKE_BUILD_TYPE=Debug\ncmake --build /work/debug -j4\nctest --test-dir /work/debug --output-on-failure --output-junit /work/native-tests.xml\n/work/build-env/bin/python -I -m build --wheel --no-isolation --outdir /work/dist -Cbuild-dir=/work/wheel-build /source/dm_openarm\nuv pip install --python /work/build-env/bin/python --no-deps /work/dist/dm_openarm-0.1.13-cp313-cp313-linux_x86_64.whl\n/work/build-env/bin/python -I -m pytest /source/dm_openarm/tests -q -o cache_dir=/work/pytest-cache --junitxml=/work/python-tests.xml\n/work/build-env/bin/python -I - <<'PY'\nfrom pathlib import Path\nimport importlib.metadata, json, platform, subprocess, sys\nimport dm_openarm\nassert dm_openarm.__version__ == '0.1.13'\nassert callable(dm_openarm._core.DmArm._set_zero_many)\nassert callable(dm_openarm._core.MitLoopController._shutdown_failed)\ninfo={\n 'python':sys.version, 'module':dm_openarm.__file__,\n 'compiler':subprocess.check_output(['g++','--version'],text=True).splitlines()[0],\n 'cmake':subprocess.check_output(['cmake','--version'],text=True).splitlines()[0],\n 'os_release':Path('/etc/os-release').read_text().splitlines(),\n 'architecture':platform.machine(),\n 'packages':subprocess.check_output(['dpkg-query','-W','-f=${Package}=${Version}\\n','libyaml-cpp0.8','libyaml-cpp-dev','libusb-1.0-0','libstdc++6','libc6'],text=True).splitlines(),\n 'python_dependencies':sorted(f'{d.metadata[\"Name\"]}=={d.version}' for d in importlib.metadata.distributions())\n}\nPath('/work/build-info.json').write_text(json.dumps(info,indent=2)+'\\n')\nPY\n",
     "environment_overrides": {
-      "PATH": "/tmp/dm-openarm-0.1.12-build-env/bin:/usr/bin:/bin:/usr/local/bin",
       "CC": "/usr/bin/gcc",
       "CXX": "/usr/bin/g++",
       "CMAKE_BUILD_PARALLEL_LEVEL": "4"
     },
-    "started_at_utc": "2026-10-16T02:19:37.446900+00:00",
-    "finished_at_utc": "2026-10-16T02:19:42.231538+00:00",
-    "build_dependencies": [
+    "python_dependencies": [
+      "Pygments==2.21.0",
       "build==1.6.1",
+      "dm_openarm==0.1.13",
       "iniconfig==2.3.1",
       "nanobind==3.1.0",
       "packaging==26.3",
       "pathspec==1.1.1",
       "pluggy==1.7.0",
-      "pygments==2.21.0",
-      "pyproject-hooks==1.3.3",
+      "pyproject_hooks==1.3.3",
       "pytest==9.1.1",
-      "scikit-build-core==1.1.1"
-    ]
+      "scikit_build_core==1.1.1"
+    ],
+    "artifact_mtime_utc": "2026-10-16T14:43:58.608971+00:00"
   },
   "system": {
-    "python": "Python 3.13.13",
+    "python": "3.13.13 (main, Jun  2 2026, 22:27:49) [Clang 22.1.3 ]",
+    "module": "/work/build-env/lib/python3.13/site-packages/dm_openarm/__init__.py",
     "compiler": "g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0",
     "cmake": "cmake version 3.28.3",
-    "architecture": "x86_64",
     "os_release": [
       "PRETTY_NAME=\"Ubuntu 24.04.5 LTS\"",
       "NAME=\"Ubuntu\"",
@@ -77,13 +65,20 @@
       "UBUNTU_CODENAME=noble",
       "LOGO=ubuntu-logo"
     ],
-    "libusb": "1.0.27"
+    "architecture": "x86_64",
+    "packages": [
+      "libc6=2.39-0ubuntu8.9",
+      "libstdc++6=14.2.0-4ubuntu2~24.04.1",
+      "libusb-1.0-0=2:1.0.27-1",
+      "libyaml-cpp-dev=0.8.0+dfsg-6build1",
+      "libyaml-cpp0.8=0.8.0+dfsg-6build1"
+    ]
   },
   "wheel": {
-    "filename": "dm_openarm-0.1.12-cp313-cp313-linux_x86_64.whl",
-    "size_bytes": 269639,
-    "sha256": "0b55237ad9d61a24392ac3bebba765d6ddf0c21d2f020111bd2a3247a18e3444",
-    "metadata_version": "0.1.12",
+    "filename": "dm_openarm-0.1.13-cp313-cp313-linux_x86_64.whl",
+    "size_bytes": 273633,
+    "sha256": "7e87ecfac2c8433b2fa024437df222f8516abcd2a881b6a05ce2cb50627d4d4f",
+    "metadata_version": "0.1.13",
     "wheel_metadata": [
       "Wheel-Version: 1.0",
       "Generator: scikit-build-core 1.1.1",
@@ -91,46 +86,156 @@
       "Tag: cp313-cp313-linux_x86_64",
       ""
     ],
-    "core_filename": "dm_openarm/_core.cpython-313-x86_64-linux-gnu.so",
-    "core_sha256": "ee9f954077573f52f386d998d3a8ba3f769b605373faa0bc871525ea6d6c981e",
-    "sdk_in_wheel_sha256": "6ff5cea271f65d9c89a6a3effb51c923dbfe859461ec6400ee3f5852a52ddb76",
+    "elf": {
+      "dm_openarm/_core.cpython-313-x86_64-linux-gnu.so": {
+        "sha256": "a1a7cea84b75a7fc491ad38705af4133010bb7f923a917013ed956ccfb736d22",
+        "needed": [
+          "libdm_device.so",
+          "libyaml-cpp.so.0.8",
+          "libstdc++.so.6",
+          "libgcc_s.so.1",
+          "libc.so.6"
+        ],
+        "runpath": [
+          "$ORIGIN:$ORIGIN/../lib"
+        ],
+        "symbol_versions": [
+          "CXXABI_1.3",
+          "CXXABI_1.3.11",
+          "CXXABI_1.3.13",
+          "CXXABI_1.3.3",
+          "CXXABI_1.3.5",
+          "CXXABI_1.3.9",
+          "GLIBCXX_3.4",
+          "GLIBCXX_3.4.11",
+          "GLIBCXX_3.4.14",
+          "GLIBCXX_3.4.18",
+          "GLIBCXX_3.4.19",
+          "GLIBCXX_3.4.21",
+          "GLIBCXX_3.4.22",
+          "GLIBCXX_3.4.26",
+          "GLIBCXX_3.4.29",
+          "GLIBCXX_3.4.9",
+          "GLIBC_2.14",
+          "GLIBC_2.2.5",
+          "GLIBC_2.3.4",
+          "GLIBC_2.32",
+          "GLIBC_2.34",
+          "GLIBC_2.38",
+          "GLIBC_2.4"
+        ]
+      },
+      "dm_openarm/libdm_device.so": {
+        "sha256": "6ff5cea271f65d9c89a6a3effb51c923dbfe859461ec6400ee3f5852a52ddb76",
+        "needed": [
+          "libusb-1.0.so.0",
+          "libstdc++.so.6",
+          "libm.so.6",
+          "libgcc_s.so.1",
+          "libc.so.6",
+          "ld-linux-x86-64.so.2"
+        ],
+        "runpath": [
+          "/home/beanpaste/文档/Projects/dm_devicesdk/out/build/Release-Gcc9/vcpkg_installed/x64-linux-dynamic/lib"
+        ],
+        "symbol_versions": [
+          "CXXABI_1.3",
+          "CXXABI_1.3.7",
+          "CXXABI_1.3.9",
+          "GLIBCXX_3.4",
+          "GLIBCXX_3.4.11",
+          "GLIBCXX_3.4.14",
+          "GLIBCXX_3.4.19",
+          "GLIBCXX_3.4.21",
+          "GLIBCXX_3.4.22",
+          "GLIBCXX_3.4.9",
+          "GLIBC_2.14",
+          "GLIBC_2.2.5",
+          "GLIBC_2.3",
+          "GLIBC_2.34"
+        ]
+      }
+    },
     "record_hashes_verified": true,
     "installed_files_match_wheel": true,
-    "installed_module": "/tmp/dm-openarm-0.1.12-test-env/lib/python3.13/site-packages/dm_openarm",
-    "python_version": "3.13.13 (main, May 10 2026, 19:26:54) [Clang 22.1.3 ]",
-    "api_exports_verified": true
+    "source_python_files_match_wheel": true,
+    "api_exports_verified": true,
+    "installed_file_comparison_excludes": [
+      ".dist-info/RECORD (rewritten by installer; wheel RECORD verified independently)"
+    ]
   },
   "verification": {
     "native": {
+      "passed": 6,
+      "failed": 0,
+      "total": 6,
       "build_type": "Debug",
       "assertions_enabled": true,
-      "directory": "/tmp/dm-openarm-0.1.12-debug",
-      "command": "ctest --test-dir /tmp/dm-openarm-0.1.12-debug --output-on-failure",
-      "passed": 6,
-      "failed": 0
+      "command": "ctest --test-dir /work/debug --output-on-failure"
     },
     "python_installed_wheel": {
-      "interpreter": "/tmp/dm-openarm-0.1.12-test-env/bin/python",
+      "passed": 73,
+      "failed": 0,
+      "total": 73,
       "isolated_mode": true,
+      "interpreter": "/work/build-env/bin/python",
       "suites": [
         "test_calibration.py",
         "test_python_api.py",
-        "test_limb_api.py"
-      ],
-      "passed": 60,
-      "failed": 0,
-      "source_tests_directory": "/tmp/dm-openarm-0.1.12-source-clean/dm_openarm/tests"
+        "test_limb_api.py",
+        "test_diagnostic_scripts.py"
+      ]
     },
-    "wheel_record_hashes_verified": true,
-    "installed_files_match_wheel": true,
     "hardware_operated_during_release": false,
+    "stationary_zero_thresholds_hardware_verified": false,
     "final_readback_window_hardware_verified": false,
-    "power_cycle_retention_verified": false
+    "power_cycle_retention_verified": false,
+    "recorded_at_utc": "2026-10-16T14:45:05.896348+00:00"
   },
   "input_hashes": {
-    "dm_openarm/third_party/damiao_sdk/lib/libdm_device.so": "6ff5cea271f65d9c89a6a3effb51c923dbfe859461ec6400ee3f5852a52ddb76",
-    "dm_openarm/third_party/damiao_sdk/src/protocol/damiao.cpp": "7e72536927df0c13e5eefa1f59d9e75d34724f938e11eae8ded237d47ee14d8b",
+    "dm_openarm/examples/arm_mit_control.cpp": "a8a68f4aa5a6773a3d76da180fad4165b9761259ff796c3159efa26eac318133",
+    "dm_openarm/examples/check_comm.cpp": "d06d162d7ed8845ec321591844725cc906646462fb5874d993bf5477345a44bc",
+    "dm_openarm/examples/enable_disable.cpp": "31ff6bf8c54c2434a23c8fea8a9ec7967a550c73e71ac917ae89903615bdb3c3",
+    "dm_openarm/examples/hold_position.cpp": "f46beb6db80be0a37433ea0228c67c2ba06336c8ab6e3f3f59dfef039078d5db",
+    "dm_openarm/examples/set_zero_position.cpp": "a267480920d3886411ebc87352d3252d4727625692d72f601872ff0dc66e4158",
+    "dm_openarm/include/dm_openarm/backend/dm_serial_backend.hpp": "fe08d6d2b35e3cefb10578e5b2ca2354dfd96498d62b4e151b3ea0688bca938b",
+    "dm_openarm/include/dm_openarm/command_guard.hpp": "79aceadfd9c866ed60d963b1727db0c901f4bb1528888b902ee0a95a8c83c6c8",
+    "dm_openarm/include/dm_openarm/config.hpp": "1485b028f384df1c128b69fc341dcfed520d74a3be7d0a517eca6e4395425f78",
+    "dm_openarm/include/dm_openarm/dm_arm.hpp": "62346be0960a08a033198abe7936c9a4baa493c9c6c1d55635a127021c488941",
+    "dm_openarm/include/dm_openarm/mit_control_command.hpp": "f6ef983b81563d9ad634285e42d4b5594036d16f9ef9a5388b204e7ef471968b",
+    "dm_openarm/include/dm_openarm/mit_loop_controller.hpp": "ac555176cccbf6bd39b73cdab21c3649fbfde7ba10d998910de9917258cb30df",
+    "dm_openarm/include/dm_openarm/types.hpp": "fc542ac1ed349b0283dda3149036ea7a81a8a6367aca7800a240cb8da8a73bce",
+    "dm_openarm/include/dm_openarm/yaml_loader.hpp": "c61c721dc6dd10f9493fc9abf2541150f54c4ca1628c0f1daa74c315c51bb075",
+    "dm_openarm/pyproject.toml": "5ac1e4ce91fc97d3f8e7318a7784a2a80ee4c19e0bad4da063f5b5ce85eb1f37",
+    "dm_openarm/python/dm_openarm/__init__.py": "4ac52dd85a2e509dc9e6b0c37c66ff37f74af8570cc0a537ed423a8032489ac1",
+    "dm_openarm/python/dm_openarm/arm.py": "1b03434daf6fdbdc5aadef1b1fdde2c2d1ed4cd36f32aa85e140b5888780611c",
+    "dm_openarm/python/dm_openarm/calibration.py": "c632532d92fd8642fa47fd55100cad0e66783f938357b6f5446e880f24cd92a3",
+    "dm_openarm/python/dm_openarm/examples/__init__.py": "2c36fada8ffc35644a8e814b0105449af22cfbff431dcc465ba218fddfdfb083",
+    "dm_openarm/python/dm_openarm/examples/basic_enable.py": "b83f0fc9fee818507e257f4744f7e79d00440133d746d1560c74e28faf009ebb",
+    "dm_openarm/python/dm_openarm/examples/mit_loop_control.py": "d2b57eadc3f85f10853ca468cef35b2f94f7fd69d3523dbf8aa3abb28f8350dd",
+    "dm_openarm/python/dm_openarm/limb.py": "24cbad53e409e5778ec1945aa0caa4ec76386a28efc1b69218ebd8cff7967a0e",
+    "dm_openarm/src/backend/dm_serial_backend.cpp": "0587fcd655a246b3230ed3420700ff949279a86d85d1c8b6597e1eb4817e1976",
+    "dm_openarm/src/dm_arm.cpp": "481ba012563c0228d71de4b714ed340a83c326284013c193aed249caeee7c9cc",
+    "dm_openarm/src/mit_control_command.cpp": "e0ce76ba65d16a6e0968f02cdc8ac3bbdd6c622dd3d558aec65460b8001d3ee2",
+    "dm_openarm/src/mit_loop_controller.cpp": "3138bf3f73e2904268c608d7df22b0cf0475b3be26e5ab290506646f92b6c55c",
+    "dm_openarm/src/python_bindings.cpp": "4d874c9254dfcdb7f6ddec4a4ee894b87b8202c67fbb3811d242ca9f25a396b4",
+    "dm_openarm/src/yaml_loader.cpp": "542ecb386babb6c6e5a9b02c658cefec59dd48a5b8fa2afe3dbf7df2b7d58d4a",
+    "dm_openarm/tests/test_calibration.py": "1c3e3960a8ac99249b07847e1a631b6082fdd14ef52b6942d2a88a49b7a10cf9",
+    "dm_openarm/tests/test_command_guard.cpp": "4aace964293ce5c51be06cdff6fa23a0f33779af41f1373d75bcc30f88035954",
+    "dm_openarm/tests/test_diagnostic_scripts.py": "5546b515e92cac4d086149470b1730ccb2398b12facd49dacea8c3e80648e341",
+    "dm_openarm/tests/test_limb_api.py": "0cd57d0cf07d6a5ce88af0f31458e6f50d2299f98b566dea1822bd60814bff0f",
+    "dm_openarm/tests/test_mit_control_command.cpp": "35a8fd854415e65b1f3a374e284cb1941ab2922f84b76ea5e3ce7c05c5c20ff7",
+    "dm_openarm/tests/test_mit_loop_controller.cpp": "0dc705d2cb9913f2b03c43d716e254b551005ba80a297de46598494fb8dbb940",
+    "dm_openarm/tests/test_python_api.py": "8d4fd57f6469fbbdcddcbfcb612f9771e8a89b87488aae4a5266d45b882a2a87",
+    "dm_openarm/tests/test_safety_transport.cpp": "dad6760650b842bf79f4d6420adc6861b3822cf625d9a8872d0c75e37bfbb5ef",
+    "dm_openarm/tests/test_shared_bus.cpp": "c17f55231d5f29de2a5987ddeb54279a026049f05d19102b2ea52b484a4fc376",
+    "dm_openarm/tests/test_yaml_loader.cpp": "61e6f1d0c1931d24941019e9381812494134b55c6dd9e95d211ac14c854573cb",
+    "dm_openarm/third_party/damiao_sdk/include/dmcan/dmcan.h": "5f0d55e1647810360945e40caa66518616c2ff5afe2f6c764df9d67534d7eb49",
     "dm_openarm/third_party/damiao_sdk/include/protocol/damiao.h": "57f0eaa6ea921df8f0006d7c50308d77273b2573ef9519d4ee165c1a833f6b42",
-    "dm_openarm/python/dm_openarm/calibration.py": "c632532d92fd8642fa47fd55100cad0e66783f938357b6f5446e880f24cd92a3"
+    "dm_openarm/third_party/damiao_sdk/include/protocol/usb_class.h": "26b16feae72dcec162d67ffbead66511607db20ed00752b691b64d11106f21f3",
+    "dm_openarm/third_party/damiao_sdk/include/unit/crc.h": "05bc3404061be5586dcfe0739c9f65411d8c2423bef5c6148e47e06f5897357d",
+    "dm_openarm/third_party/damiao_sdk/include/unit/sliding_rate.h": "2c8d40e439eafd36defe66ba6858c64d632cdab7162c2fb7c9104d71060f5c12",
+    "dm_openarm/third_party/damiao_sdk/lib/libdm_device.so": "6ff5cea271f65d9c89a6a3effb51c923dbfe859461ec6400ee3f5852a52ddb76",
+    "dm_openarm/third_party/damiao_sdk/src/protocol/damiao.cpp": "7e72536927df0c13e5eefa1f59d9e75d34724f938e11eae8ded237d47ee14d8b"
   }
 }

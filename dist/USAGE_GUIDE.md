@@ -21,7 +21,7 @@ arm.hold(reset_fault=True)     # 显式解除超时锁存，仍保持
 ## 安装
 
 当前 wheel 适用于 **CPython 3.13 / Linux x86_64**，在 Ubuntu 24.04 隔离环境构建。
-依赖系统 `libyaml-cpp.so.0.8`、`libusb-1.0.so.0` 和 GNU C/C++ 运行库；精确符号版本与构建环境见 `BUILD_MANIFEST.json`。
+依赖系统 `libyaml-cpp.so.0.8`、`libusb-1.0.so.0`、glibc ≥ 2.38 及提供 `GLIBCXX_3.4.29` 的 C++ 运行库；逐文件符号版本见 `BUILD_MANIFEST.json`。
 它不是 manylinux 包，不能仅凭 Linux x86_64 标签推定其他发行版可用。
 其他 Python 版本或不满足系统库要求的平台需要重新构建 wheel。
 
@@ -183,7 +183,7 @@ wheel 校验和另见 [SHA256SUMS](SHA256SUMS)，在 `dist/` 执行 `sha256sum -
 ```bash
 # 激活干净 CPython 3.13 构建环境，完整依赖版本以 manifest 为准。
 unset PYTHONPATH PYTHONHOME
-python -I -m pip install build==1.6.1 scikit-build-core==1.1.0 nanobind==3.1.0
+python -I -m pip install build==1.6.1 scikit-build-core==1.1.1 nanobind==3.1.0
 mkdir /tmp/dm-openarm-source
 git archive "$(python -c 'import json; print(json.load(open("dist/BUILD_MANIFEST.json"))["source"]["source_commit"])')" | tar -x -C /tmp/dm-openarm-source
 cd /tmp/dm-openarm-source/dm_openarm
