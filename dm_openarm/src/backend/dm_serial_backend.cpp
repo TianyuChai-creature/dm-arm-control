@@ -159,7 +159,8 @@ void DmSerialBackend::disable()
       }
       if (all_disabled) break;
       const auto now = std::chrono::steady_clock::now();
-      if (now >= next_query && now < deadline) {
+      if(now >= deadline) break;
+      if (now >= next_query) {
         for (std::size_t i=0; i<config_.motors.size(); ++i) {
           const auto f=control_->getMotorFeedback(config_.motors[i].can_id);
           if(f.rx_sequence>before[i] && f.last_rx_age_s<=0.2 && f.error_code==0) continue;
@@ -173,7 +174,7 @@ void DmSerialBackend::disable()
         next_query=now+std::chrono::milliseconds(20);
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    } while (std::chrono::steady_clock::now() < deadline);
+    } while (true); // Inspect replies once more after the last scheduled query.
     if (!all_disabled) {
       shutdown_unknown_ = true;
       throw ControlFailure({"SHUTDOWN_UNCONFIRMED","disable status unconfirmed; motor state unknown"});

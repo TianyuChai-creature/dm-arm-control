@@ -548,9 +548,11 @@ void MitLoopController::worker_loop(double hz)
       arm_.disable_for_loop();
     }
     catch(...) {
+      const auto error=std::current_exception();
       shutdown_unknown = true;
       cleanup_error += (cleanup_error.empty() ? "" : "; ");
-      cleanup_error += "shutdown unknown: " + exception_text(std::current_exception());
+      cleanup_error += "shutdown unknown: " + exception_text(error);
+      std::lock_guard<std::mutex> lock(mutex_); record_failure(error,"SHUTDOWN_UNCONFIRMED");
     }
     finish_stop(exception_text(exception) + (cleanup_error.empty() ? "" : "; " + cleanup_error),
                 shutdown_unknown);
@@ -662,6 +664,7 @@ void MitLoopController::begin_calibration(std::vector<MitCommand> gains) {
 void MitLoopController::calibration_update(std::vector<MitCommand> commands) {
   std::lock_guard<std::mutex> boundary(cycle_mutex_);
   std::lock_guard<std::mutex> lock(mutex_);
+  require_no_pending_hold();
   if (!calibration_executing_ || !calibration_active_ || calibration_cancelled_ || !running_)
     throw std::runtime_error("zero calibration cancelled or stopped");
   if (guard_.latched) throw std::runtime_error("calibration control failed: "+guard_.fault);

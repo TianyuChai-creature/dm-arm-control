@@ -245,16 +245,21 @@ static void test_hold_send_failure(bool shutdown_failure){
   loop.enable_seeded(std::vector<MitCommand>(2,MitCommand{25,1,0,0,0}),250,1,.5);
   loop.set_all_commands(std::vector<MitCommand>(2,MitCommand{10,.5,.9,0,0}));
   await_loop([&]{return loop.sent_sequence()==1;});
-  fail_hold_send=true;if(shutdown_failure)emit_status=false;
+  fail_hold_send=true;if(shutdown_failure){emit_status=false;failed_op=0xcc;}
   bool failed=false;try{loop.hold();}catch(const std::runtime_error&){failed=true;}
   assert(failed);
   try{loop.stop();}catch(const std::runtime_error&){}
   assert(loop.sent_commands()[0].q==.9 && loop.sent_commands()[1].q==.9);
   assert(loop.safety_state()==(shutdown_failure ? "SHUTDOWN_UNKNOWN" : "FAULT"));
   assert(count(1,0xfd)>=5 && count(2,0xfd)>=5);
+  const auto status=loop.control_status();
+  assert(status.faults[0].code=="TX_FAILED" && status.faults[0].can_id==2);
+  if(shutdown_failure) assert(std::any_of(status.faults.begin(),status.faults.end(),[](const auto& issue){
+    return issue.code=="SHUTDOWN_UNCONFIRMED" && issue.can_id==1 && issue.rx_sequence.has_value();
+  }));
   bool rejected=false;try{loop.hold(true);}catch(const std::runtime_error&){rejected=true;}
   assert(rejected);
-  fail_hold_send=false;emit_status=true;arm.disable();arm.disconnect();
+  fail_hold_send=false;failed_op=-1;emit_status=true;arm.disable();arm.disconnect();
   mit_feedback=false;frames.clear();
 }
 static void test_startup_send_failure(){

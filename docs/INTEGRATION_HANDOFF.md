@@ -80,6 +80,8 @@ except FeedbackStaleError:
     show_warning(arm.control_status())   # 不重放、不 close，等待新反馈和新目标
 except HoldPendingError:
     show_pending(arm.control_status())   # 不重复提交保持请求
+except (ValueError, IndexError):
+    reject_invalid_command()            # 输入拒绝不等于电机故障
 except Exception:
     handle_real_fault(arm.control_status())  # 保留原因及 owner 的关闭结果
     raise
