@@ -20,3 +20,5 @@ Release verification uses a clean Git source archive, a Debug C++ build with ass
 On 2026-10-16, the earlier single-query implementation completed all ten axes' zero/save commands. Independent readback confirmed all ten at approximately -0.000191 rad and disabled. That run's API reported missing final feedback; the final one-second readback window is covered by offline tests and has not been rerun on hardware. Power-cycle retention remains unverified. See `dm_openarm/hardware_verification_20261016.json`.
 
 The configured USB serial must match the user's adapter. This release does not change consumer projects or operate hardware during packaging.
+
+Release checks passed: CTest 6/6; installed-wheel Python 3.13 tests 60/60; wheel RECORD and installed package hashes verified.
