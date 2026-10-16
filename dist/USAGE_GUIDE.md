@@ -1,6 +1,6 @@
 # dm_openarm SDK 使用指南
 
-当前发行版本：**0.1.13**。带原生执行保护的用法：
+当前发行版本：**0.1.14**。带原生执行保护的用法：
 
 ```python
 arm.enable_seeded(gains, hz=250, command_timeout=0.1, feedback_timeout=0.2)
@@ -28,11 +28,17 @@ arm.hold(reset_fault=True)     # 显式解除超时锁存，仍保持
 安装当前目录下的 wheel：
 
 ```bash
-python -m pip install dm_openarm-0.1.13-cp313-cp313-linux_x86_64.whl
+python -m pip install dm_openarm-0.1.14-cp313-cp313-linux_x86_64.whl
 ```
 
 guarded 启动默认 **250 Hz**，兼容入口默认 1000 Hz，最高支持 1000 Hz。
 频率不从 YAML 读取；运行时通过 `enable_seeded(..., hz=...)` 显式指定。
+
+## 0.1.14 查询修复
+
+`connect_passive()` 后的 `probe_status()` 按达妙官方协议接收正常八字节状态反馈，以每轴查询前后的接收序号变化判断在线；状态同时可从 `states()` 读取。失能和报警电机仍可报告在线，不能据此判定健康或已使能。旧缓存、四字节请求回显及参数/保存回复不满足本次查询；无请求序号的协议仍无法区分查询期间到达的延迟或主动反馈。
+
+Python API 与 `libdm_device.so` 保持不变。完整修复和官方依据见 [RELEASE_NOTES_0.1.14.md](RELEASE_NOTES_0.1.14.md)。从 0.1.12 升级的集成项目仍须迁移下面的设零前置条件、精确版本门控和依赖身份记录。
 
 ## 0.1.13 升级要点
 
@@ -177,7 +183,7 @@ Ctrl+C／`disable()` 只触发软件停止与失能。失能失败或未确认�
 
 版本同时定义于 Python 包、项目元数据和 CMake，发布前必须一致。先提交源码与文档，
 取得干净源码提交，再用 `git archive` 导出该提交构建，避免混入旧扩展或工作区临时文件。
-0.1.13 的实际环境、完整命令、源码提交、验证结果及 SHA-256 见 [BUILD_MANIFEST.json](BUILD_MANIFEST.json)。
+0.1.14 的实际环境、完整命令、源码提交、验证结果及 SHA-256 见 [BUILD_MANIFEST.json](BUILD_MANIFEST.json)。
 wheel 校验和另见 [SHA256SUMS](SHA256SUMS)，在 `dist/` 执行 `sha256sum -c SHA256SUMS` 可校验已列出的所有版本。
 
 ```bash
@@ -188,7 +194,7 @@ mkdir /tmp/dm-openarm-source
 git archive "$(python -c 'import json; print(json.load(open("dist/BUILD_MANIFEST.json"))["source"]["source_commit"])')" | tar -x -C /tmp/dm-openarm-source
 cd /tmp/dm-openarm-source/dm_openarm
 python -I -m build --wheel --no-isolation --outdir /tmp/dm-openarm-artifacts \
-  -Cbuild-dir=/tmp/dm-openarm-wheel-0.1.13
+  -Cbuild-dir=/tmp/dm-openarm-wheel-0.1.14
 ```
 
 构建目录须为空并事先创建导出目录。记录编译器、系统库、Python 构建依赖、SDK 输入文件与

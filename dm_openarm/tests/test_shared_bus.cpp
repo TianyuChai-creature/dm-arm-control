@@ -37,8 +37,8 @@ bool dmcan_device_send_can(dmcan_device_handle* handle,uint8_t,uint32_t id,bool,
   }
   else if(id==0x7FF && n==4 && data[2]==0xCC && data[0]==1 && recv_callback) {
     usb_rx_frame reply{};
-    reply.head.can_id=1; reply.head.dlc=4;
-    reply.payload[0]=1; reply.payload[1]=0; reply.payload[2]=0xCC;
+    reply.head.can_id=11; reply.head.dlc=8;
+    reply.payload[0]=1;reply.payload[1]=0x80;reply.payload[3]=0x80;reply.payload[4]=0x08;
     recv_callback(handle,&reply);
   }
   else if(id!=0x7FF) commands.insert(id);
@@ -92,7 +92,8 @@ int main() {
   enabled.clear();disabled.clear();commands.clear();opens=closes=0;
   { backend::DmSerialBackend passive(a);passive.connect();
     assert(passive.probe_status(.02)==std::vector<std::uint16_t>{1});
-    assert(passive.states()[0].rx_sequence==0); // 0xCC is not motion feedback.
+    const auto state=passive.states()[0];
+    assert(state.rx_sequence==1 && state.raw_status==0 && !state.enabled_confirmed);
     passive.disconnect(); }
   assert(opens==1 && closes==1 && enabled.empty() && disabled.empty() && commands.empty());
 }

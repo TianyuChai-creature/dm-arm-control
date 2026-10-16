@@ -66,10 +66,11 @@ class Arm:
         self._arm.connect()
 
     def probe_status(self, timeout_s: float = 0.2) -> list[int]:
-        """Return IDs with 0xCC-format replies observed after dispatch.
+        """Query 0xCC and return IDs with new normal eight-byte state feedback.
 
-        The protocol has no request nonce, so a delayed older reply is
-        indistinguishable from a reply to this call.
+        Replies update states(), including disabled/faulted motor status. Presence
+        does not establish health or enable ownership. With no request nonce,
+        delayed or unsolicited feedback cannot be tied uniquely to this query.
         """
         return self._arm.probe_status(timeout_s)
 

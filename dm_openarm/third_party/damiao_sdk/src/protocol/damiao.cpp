@@ -547,22 +547,6 @@ void Motor_Control::refresh_motor_status(Motor& motor)
     throw std::runtime_error("refresh_motor_status: CAN send failed");
 }
 
-uint64_t Motor_Control::status_probe_sequence(uint16_t can_id) const
-{
-  std::lock_guard<std::mutex> lock(mutex_);
-  const auto it = motors.find(can_id);
-  if(it == motors.end()) throw std::invalid_argument("unknown motor CAN ID");
-  return it->second->status_probe_sequence_;
-}
-
-uint64_t Motor_Control::response_sequence(uint16_t can_id) const
-{
-  std::lock_guard<std::mutex> lock(mutex_);
-  const auto it = motors.find(can_id);
-  if(it == motors.end()) throw std::invalid_argument("unknown motor CAN ID");
-  return it->second->rx_sequence_ + it->second->status_probe_sequence_;
-}
-
 void Motor_Control::control_cmd(uint16_t id, uint8_t cmd, uint8_t channel)
 {
   const uint8_t payload[8] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, cmd};
@@ -753,22 +737,16 @@ void Motor_Control::on_rx_frame(const usb_rx_frame& frame)
     return;
   }
   auto m = it->second;
-  if ((len == 4 || len == 8) && frame.head.channel == m->GetChannel() &&
+  if (frame.head.ext || frame.head.rtr || frame.head.channel != m->GetChannel()) return;
+  if ((len == 4 || len == 8) &&
       frame.payload[0] == (m->GetCanId() & 0xff) && frame.payload[1] == (m->GetCanId() >> 8) &&
       frame.payload[2] == 0xAA && frame.payload[3] == 0x01) {
     ++m->save_sequence_;
     return;
   }
-  // The read-only 0xCC reply is not a motion sample: do not seed an MIT HOLD
-  // target from its payload, even if the motor is disabled.
-  if(len >= 3 && frame.payload[0] == (m->GetCanId() & 0xff) &&
-     frame.payload[1] == (m->GetCanId() >> 8) && frame.payload[2] == 0xCC)
-  {
-    if (len == 4 && frame.head.channel == m->GetChannel() && frame.payload[3] == 0x00)
-      ++m->status_probe_sequence_;
-    return;
-  }
-  if(len != 8 || frame.head.channel != m->GetChannel()) return;
+  // A 0xCC refresh returns the same eight-byte state as a control command,
+  // not an echo of the four-byte request. Short echoes never update feedback.
+  if(len != 8) return;
   // Every delayed/interleaved register reply must bypass motion feedback.
   if(is_param_reply(frame.payload, len, m->GetCanId()))
   {
@@ -780,6 +758,9 @@ void Motor_Control::on_rx_frame(const usb_rx_frame& frame)
     }
     return;
   }
+
+  // State byte 0 contains status in the high nibble and motor ID in the low nibble.
+  if ((frame.payload[0] & 0x0f) != (m->GetCanId() & 0x0f)) return;
 
   const uint16_t q_uint = (uint16_t(frame.payload[1]) << 8) | frame.payload[2];
   const uint16_t dq_uint = (uint16_t(frame.payload[3]) << 4) | (frame.payload[4] >> 4);

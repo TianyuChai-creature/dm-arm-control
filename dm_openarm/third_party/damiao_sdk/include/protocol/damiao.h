@@ -177,7 +177,6 @@ private:
   std::chrono::steady_clock::time_point last_time_;
   double delta_time_{0.0};
   uint64_t rx_sequence_{0};
-  uint64_t status_probe_sequence_{0};
   uint8_t error_code_{0};
   detail::SlidingRate rx_rate_;
 
@@ -236,8 +235,6 @@ public:
   void save_motor_param_confirmed(Motor& motor, double timeout_s = 0.2);
   void save_motor_param(Motor& DM_Motor);
   void refresh_motor_status(Motor& motor);
-  uint64_t response_sequence(uint16_t can_id) const;
-  uint64_t status_probe_sequence(uint16_t can_id) const;
   void validate_mit(Motor& motor, float kp, float kd, float q, float dq, float tau) const;
 
   void control_cmd(uint16_t id, uint8_t cmd, uint8_t channel = 0);

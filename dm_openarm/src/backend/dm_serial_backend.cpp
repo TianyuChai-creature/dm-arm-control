@@ -195,16 +195,18 @@ std::vector<std::uint16_t> DmSerialBackend::probe_status(double timeout_s)
   if(!control_) throw std::runtime_error("USB bus is not connected");
   std::vector<std::uint64_t> before;
   before.reserve(config_.motors.size());
-  for(const auto& motor : config_.motors)
-    before.push_back(control_->status_probe_sequence(motor.can_id));
-  for(const auto& motor : config_.motors)
+  for(const auto& motor : config_.motors) {
+    // Snapshot per axis immediately before its query; an earlier axis's reply
+    // must not make cached feedback for a later axis count as a new response.
+    before.push_back(control_->getMotorFeedback(motor.can_id).rx_sequence);
     control_->refresh_motor_status(*control_->getMotor(motor.can_id));
+  }
   const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(timeout_s);
   std::vector<std::uint16_t> responded;
   do {
     responded.clear();
     for(std::size_t i = 0; i < config_.motors.size(); ++i)
-      if(control_->status_probe_sequence(config_.motors[i].can_id) > before[i])
+      if(control_->getMotorFeedback(config_.motors[i].can_id).rx_sequence > before[i])
         responded.push_back(config_.motors[i].can_id);
     if(responded.size() == config_.motors.size()) break;
     std::this_thread::sleep_for(std::chrono::milliseconds(2));

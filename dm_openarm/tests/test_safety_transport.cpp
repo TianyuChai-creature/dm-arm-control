@@ -23,7 +23,7 @@ static dmcan_device_handle device;
 static dmcan_frame_callback callback=nullptr;
 static std::vector<std::pair<unsigned,unsigned>> frames;
 static std::atomic<int> failed_op{-1};
-static bool probe_motion=false, probe_reply=false;
+static std::function<void(unsigned)> on_probe;
 static std::atomic<bool> emit_status{true}, mit_feedback{false}, fail_hold_send{false};
 static std::mutex frames_mutex;
 static std::condition_variable frames_changed;
@@ -120,10 +120,7 @@ bool dmcan_device_send_can(dmcan_device_handle*,uint8_t,uint32_t id,bool,bool,bo
   }
   if(flip_on_save1 && id==0x7ff && op==0xaa && d[0]==1)
     flip_status2_after_save1=true;
-  if(callback && id==0x7ff && n==4 && op==0xcc){
-    if(probe_motion){usb_rx_frame f{};f.head.can_id=d[0];f.head.dlc=8;f.payload[0]=static_cast<uint8_t>(0x10|d[0]);callback(&device,&f);}
-    if(probe_reply){usb_rx_frame f{};f.head.can_id=d[0];f.head.dlc=4;f.payload[0]=d[0];f.payload[1]=d[1];f.payload[2]=0xcc;callback(&device,&f);}
-  }
+  if(callback && id==0x7ff && n==4 && op==0xcc && on_probe) on_probe(d[0]);
   if(callback && emit_status && (op==0xfc || op==0xfd)){
     if (!(preempt_status2 && op==0xfd && id==2)) {
       usb_rx_frame f{};f.head.can_id=id;f.head.dlc=8;
@@ -603,7 +600,70 @@ static void test_independent_owner_timeouts_and_empty_updates() {
   left_loop.stop();left.disconnect();right.disconnect();mit_feedback=false;frames.clear();
 }
 
+static void test_status_probe() {
+  using namespace dm_openarm;
+  auto c=config();
+  c.motors[0].model=MotorModel::DM8009;
+  c.motors[1].model=MotorModel::DM4340P;
+  backend::DmSerialBackend b(c);b.connect();frames.clear();
+  const auto state_frame=[](unsigned id,unsigned status=0) {
+    usb_rx_frame f{};f.head.can_id=id+10;f.head.dlc=8; // MST_ID, not command CAN ID.
+    f.payload[0]=static_cast<std::uint8_t>((status<<4)|id);
+    f.payload[1]=0x80;f.payload[3]=0x80;f.payload[4]=0x08;
+    f.payload[6]=25;f.payload[7]=26;
+    return f;
+  };
+  // A 0xCC refresh returns the normal eight-byte feedback, even when disabled.
+  // Enabled/faulted replies also prove presence, not health or enable ownership.
+  for(const auto status : {0u,1u,8u}) {
+    on_probe=[&](unsigned id){auto f=state_frame(id,status);callback(&device,&f);};
+    assert(b.probe_status(.01)==std::vector<std::uint16_t>({1,2}));
+    for(const auto& s:b.states()) {
+      assert(s.raw_status==status && s.rx_sequence>0 && s.last_rx_age_s<.2);
+      assert(std::abs(s.position)<.001 && std::abs(s.velocity)<.02 && std::abs(s.torque)<.02);
+      assert(!s.enabled_confirmed);
+    }
+  }
+  // Position bytes may contain 0xCC; an opcode-like prefix is still state data.
+  on_probe=[&](unsigned id){
+    auto f=state_frame(id);f.payload[1]=0;f.payload[2]=0xCC;callback(&device,&f);
+  };
+  assert(b.probe_status(.01)==std::vector<std::uint16_t>({1,2}));
+  // Previously received samples cannot satisfy a new probe.
+  on_probe={};
+  assert(b.probe_status(.01).empty());
+  // Query echoes, parameter/save replies and malformed/unrelated frames are not feedback.
+  for(int scenario=0;scenario<9;++scenario) {
+    const auto before=b.states();
+    on_probe=[&](unsigned id){
+      auto f=state_frame(id);
+      switch(scenario) {
+        case 0: f.head.dlc=4;f.payload[0]=id;f.payload[1]=0;f.payload[2]=0xCC;f.payload[3]=0;break;
+        case 1: case 2: f.payload[0]=id;f.payload[1]=0;f.payload[2]=scenario==1 ? 0x33 : 0x55;f.payload[3]=80;break;
+        case 3: f.head.dlc=4;f.payload[0]=id;f.payload[1]=0;f.payload[2]=0xAA;f.payload[3]=1;break;
+        case 4: f.head.dlc=7;break;
+        case 5: f.head.channel=1;break;
+        case 6: f.payload[0]=(id==1 ? 2 : 1);break;
+        case 7: f.head.ext=1;break;
+        case 8: f.head.rtr=1;break;
+      }
+      callback(&device,&f);
+    };
+    assert(b.probe_status(.01).empty());
+    const auto after=b.states();
+    for(std::size_t i=0;i<before.size();++i) assert(after[i].rx_sequence==before[i].rx_sequence);
+  }
+  // Feedback for axis 2 arriving before its own query must not count for that query.
+  on_probe=[&](unsigned id){
+    if(id==1) for(const auto reply_id : {1u,2u}) {auto f=state_frame(reply_id);callback(&device,&f);}
+  };
+  assert(b.probe_status(.01)==std::vector<std::uint16_t>({1}));
+  for(const auto& frame:frames) assert(frame.first==0x7ff && frame.second==0xcc);
+  on_probe={};b.disconnect();frames.clear();
+}
+
 int main(){using namespace dm_openarm;
+  test_status_probe();
   test_zero_requires_stationary_disabled_feedback();
   test_zero_batch_scope_preflight_and_partial_failure();
   test_stop_state_and_restart_baseline();
@@ -649,13 +709,6 @@ int main(){using namespace dm_openarm;
     b.send_mit_all({MitCommand{10,.5,0,0,0},MitCommand{10,.5,0,0,0}});
     assert((last_mit==std::array<std::uint8_t,8>{0x7f,0xff,0x7f,0xf0,0x51,0x19,0x97,0xff}));
     b.disconnect();frames.clear();
-  }
-  {
-    backend::DmSerialBackend b(config());b.connect();probe_motion=true;
-    assert(b.probe_status(.01).empty());
-    probe_motion=false;probe_reply=true;
-    assert(b.probe_status(.01)==std::vector<std::uint16_t>({1,2}));
-    probe_reply=false;b.disconnect();frames.clear();
   }
   {
     backend::DmSerialBackend b(config());b.connect();failed_op=0xfc;

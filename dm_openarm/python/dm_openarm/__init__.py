@@ -13,7 +13,7 @@ from .calibration import CalibrationError, CalibrationReport, JointZeroResult
 from .arm import Arm
 from .limb import Limb
 
-__version__ = "0.1.13"
+__version__ = "0.1.14"
 
 __all__ = [
     "Arm",
