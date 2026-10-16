@@ -1,6 +1,6 @@
 # dm_openarm SDK 使用指南
 
-当前发行版本：**0.1.14**。带原生执行保护的用法：
+当前发行版本：**0.1.15**。带原生执行保护的用法：
 
 ```python
 arm.enable_seeded(gains, hz=250, command_timeout=0.1, feedback_timeout=0.2)
@@ -9,12 +9,12 @@ arm.enable_seeded(gains, hz=250, command_timeout=0.1, feedback_timeout=0.2)
 arm.mit(commands)
 arm.hold_command()             # 正常静止：保持最后实际执行的命令，前馈不衰减
 arm.hold()                     # 人工暂停：实测位置保持，原前馈一秒内撤去
-arm.hold(reset_fault=True)     # 显式解除超时锁存，仍保持
+status = arm.control_status() # warnings 可恢复，faults 是锁存故障；HOLD 序号表示提交确认
 ```
 
 `gains` 为 SDK 电机顺序的 `MitCommand` 列表，只取经验证的保持 kp/kd；kp 必须为正。
-启动反馈超时、无效反馈或驱动错误锁存 FAULT；应用命令超时且反馈正常锁存 FAULT_HOLD。
-普通新命令无法解除锁存。无抱闸机器在通信/供电/驱动失效时不能保证继续支撑负载。
+启动反馈超时、无效反馈或驱动错误仍故障保护；普通命令迟到进入带告警的 HOLD，不锁存故障。
+默认反馈年龄超过 0.2s 告警保持，达到总年龄 0.5s 才作为持续失效保护。故障锁存不能被普通新命令解除。无抱闸机器在通信/供电/驱动失效时不能保证继续支撑负载。
 
 兼容入口 `enable()+start_mit_loop()` 不会为新对象自动启用 CommandGuard；调用者负责反馈验证、启动基线、命令更新期限与故障处置。
 
@@ -28,11 +28,17 @@ arm.hold(reset_fault=True)     # 显式解除超时锁存，仍保持
 安装当前目录下的 wheel：
 
 ```bash
-python -m pip install dm_openarm-0.1.14-cp313-cp313-linux_x86_64.whl
+python -m pip install dm_openarm-0.1.15-cp313-cp313-linux_x86_64.whl
 ```
 
 guarded 启动默认 **250 Hz**，兼容入口默认 1000 Hz，最高支持 1000 Hz。
 频率不从 YAML 读取；运行时通过 `enable_seeded(..., hz=...)` 显式指定。
+
+## 0.1.15 超时策略与对接
+
+新增 `feedback_hard_timeout=None`、`hold_timeout=0.2`、`control_status()` 及可恢复异常 `FeedbackStaleError` / `HoldPendingError`。自动硬期限为 max(0.5, 2.5*feedback_timeout)。反馈恢复后仅接受新的有效提交，不重放旧目标、不重使能。失能后增加只读查询确认。
+
+集成端必须同步消费告警、区分 RPC 状态迟到与 CAN 反馈失效，并调整主机关闭/全局停止路径；仅换 wheel 不能关闭原问题。完整接口、原因码、维护边界和回退见 [对接文档](../docs/INTEGRATION_HANDOFF.md)。新期限未实机验证，抽动继续搁置。
 
 ## 0.1.14 查询修复
 
@@ -115,7 +121,7 @@ finally:
 - `start_mit_loop(hz=1000.0, home=False)`：启动控制循环。
 - `stop_mit_loop()`：停止控制循环、发送零 MIT 与失能帧，要求新鲜反馈确认失能；失败抛错。
 - `hold_command()`：保持最后实际执行的静止命令，前馈不衰减。
-- `hold(reset_fault=False)`：实测位置保持；`reset_fault=True` 解除超时锁存。
+- `hold(reset_fault=False)`：实测位置保持；`reset_fault=True` 保留显式故障恢复能力；普通告警不需要 reset。
 - `safety_state` / `fault` / `accepted_sequence` / `sent_sequence` / `sent_commands()`：原生保护只读接口。
 - `set_zero(can_id, persist=True)` / `set_zero_all(...)`：设置零位。
 - `deadline_misses`：读取控制循环超期次数。
@@ -158,8 +164,8 @@ dm_openarm/config/arm.yaml
 arm.disable()
 ```
 
-`hold()`、`hold_command()` 是同步确认接口；等待期间拒绝运动更新。保持确认期限取 `feedback_timeout`，
-启动总期限为 3 秒。底层发送调用必须返回才能完成异常清理，这些期限不提供硬实时急停保证。
+`hold()`、`hold_command()` 是同步确认接口；等待期间拒绝运动更新。正常保持等待期限取独立 `hold_timeout`（默认 0.2s）；超时抛 `HoldPendingError`，
+原请求继续，迟到成功不失能。启动确认期限仍为 3 秒，自动标定仍严格处理。底层发送调用必须返回才能完成异常清理，这些期限不提供硬实时急停保证。
 `HOLD` 表示保护逻辑状态；同步返回表示所有轴的保持帧已被发送接口提交，不能据此断言机械稳定。
 ACTIVE 命令仍须在 `command_timeout` 内定期提交；新命令从当前有效保持基线恢复。
 
@@ -183,7 +189,7 @@ Ctrl+C／`disable()` 只触发软件停止与失能。失能失败或未确认�
 
 版本同时定义于 Python 包、项目元数据和 CMake，发布前必须一致。先提交源码与文档，
 取得干净源码提交，再用 `git archive` 导出该提交构建，避免混入旧扩展或工作区临时文件。
-0.1.14 的实际环境、完整命令、源码提交、验证结果及 SHA-256 见 [BUILD_MANIFEST.json](BUILD_MANIFEST.json)。
+0.1.15 的实际环境、完整命令、源码提交、验证结果及 SHA-256 见 [BUILD_MANIFEST.json](BUILD_MANIFEST.json)。
 wheel 校验和另见 [SHA256SUMS](SHA256SUMS)，在 `dist/` 执行 `sha256sum -c SHA256SUMS` 可校验已列出的所有版本。
 
 ```bash
@@ -194,7 +200,7 @@ mkdir /tmp/dm-openarm-source
 git archive "$(python -c 'import json; print(json.load(open("dist/BUILD_MANIFEST.json"))["source"]["source_commit"])')" | tar -x -C /tmp/dm-openarm-source
 cd /tmp/dm-openarm-source/dm_openarm
 python -I -m build --wheel --no-isolation --outdir /tmp/dm-openarm-artifacts \
-  -Cbuild-dir=/tmp/dm-openarm-wheel-0.1.14
+  -Cbuild-dir=/tmp/dm-openarm-wheel-0.1.15
 ```
 
 构建目录须为空并事先创建导出目录。记录编译器、系统库、Python 构建依赖、SDK 输入文件与

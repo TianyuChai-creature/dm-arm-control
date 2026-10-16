@@ -101,13 +101,25 @@ class Arm:
         if loop_error is not None:
             raise loop_error
 
-    def enable_seeded(self, gains, *, hz=250.0, command_timeout=0.1, feedback_timeout=0.2):
+    def enable_seeded(self, gains, *, hz=250.0, command_timeout=0.1, feedback_timeout=0.2,
+                      feedback_hard_timeout=None, hold_timeout=0.2):
         """Enable and seed; return after the first complete hold batch is submitted."""
-        self._loop.enable_seeded(gains, hz, command_timeout, feedback_timeout)
+        self._loop.enable_seeded(gains, hz, command_timeout, feedback_timeout,
+                                 feedback_hard_timeout, hold_timeout)
 
-    def start_seeded(self, gains, *, hz=250.0, command_timeout=0.1, feedback_timeout=0.2):
+    def start_seeded(self, gains, *, hz=250.0, command_timeout=0.1, feedback_timeout=0.2,
+                     feedback_hard_timeout=None, hold_timeout=0.2):
         """Native feedback acquisition/seed; poll safety_state until HOLD."""
-        self._loop.start_seeded(gains, hz, command_timeout, feedback_timeout)
+        self._loop.start_seeded(gains, hz, command_timeout, feedback_timeout,
+                                feedback_hard_timeout, hold_timeout)
+
+    def control_status(self):
+        """Return a native snapshot of warnings, faults and HOLD submission IDs.
+
+        Warnings are recoverable and never populate fault. Feedback recovery
+        permits new commands; it never replays pre-pause targets or re-enables.
+        """
+        return self._loop.control_status()
 
     @property
     def safety_state(self):

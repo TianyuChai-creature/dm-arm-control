@@ -1,9 +1,9 @@
 # dm_openarm 使用说明
 
-当前发行版本：**0.1.14**。
+当前发行版本：**0.1.15**。
 
 本版修正被动查询的回复识别，沿用既有设零、停止状态及空命令保护，升级说明见
-[0.1.14 更新日志](../dist/RELEASE_NOTES_0.1.14.md)，整体架构见[根目录 README](../README.md#架构怎么用-api)。
+[0.1.15 更新日志](../dist/RELEASE_NOTES_0.1.15.md)，整体架构见[根目录 README](../README.md#架构怎么用-api)。
 
 `dm_openarm` 是一个面向当前 5 自由度达妙机械臂的 C++17 控制库，并提供
 Python API。底层复用达妙 USB-CANFD SDK，当前版本只封装 MIT 模式。
@@ -73,7 +73,8 @@ YAML 后不需要重新编译；修改 C++ 或 Python 包代码后才需要重�
 | `Arm` | `start_mit_loop(hz=1000, home=False)` | 兼容裸入口，新对象不会自动开启 CommandGuard |
 | `Arm` | `stop_mit_loop()` | 停环、发送零 MIT 和失能帧，要求新鲜反馈确认失能 |
 | `Arm` | `hold_command()` | 保持最后实际执行的命令，前馈不衰减 |
-| `Arm` | `hold(reset_fault=False)` | 实测位置保持；可显式解除超时锁存 |
+| `Arm` | `hold(reset_fault=False)` | 实测位置保持；保留显式故障恢复入口 |
+| `Arm` | `control_status()` | 原生告警、故障及 HOLD 请求/提交序号快照 |
 | `Arm` | `safety_state` / `fault` / `sent_commands()` | 原生保护状态与实际下发命令 |
 | `Arm` | `set_zero(...)` / `set_zero_all(...)` | 设置电机零位 |
 | `Arm` | `deadline_misses` | 读取控制环超期次数 |
@@ -596,11 +597,11 @@ target_link_libraries(my_app PRIVATE dm_openarm)
 包括当前已衰减的前馈。`set_all_commands()` 仍完整替换命令表。输入验证失败不修改命令表或接受序号。
 
 `hold()`／`hold_command()` 成功返回表示对应的完整保持批次已由发送接口提交；保持确认等待期间拒绝
-运动更新。启动确认期限为 3 秒，保持确认期限为 `feedback_timeout`；底层调用仍须返回才能完成清理。
+运动更新。启动确认期限为 3 秒，正常保持等待期限为独立 `hold_timeout`（默认 0.2s）；超时抛 `HoldPendingError`，原请求继续等待，迟到成功不失能。启动/自动标定仍严格确认；底层调用仍须返回才能完成清理。
 `HOLD` 是保护逻辑状态，机械稳定需要另行验证。Ctrl+C／`disable()` 不能替代独立硬件急停。
 停止失败时保留异常；`SHUTDOWN_UNKNOWN`／`shutdown unknown` 表示失能未确认，必须人工处置，禁止自动恢复。
 
-0.1.14 的源码提交、构建环境、验证记录和 wheel hash 见 [`../dist/BUILD_MANIFEST.json`](../dist/BUILD_MANIFEST.json)。
+0.1.15 的源码提交、构建环境、验证记录和 wheel hash 见 [`../dist/BUILD_MANIFEST.json`](../dist/BUILD_MANIFEST.json)。
 
 ### Python 双臂自动零位标定
 
@@ -705,3 +706,14 @@ J5尚未通过，未执行实机写零或Flash保存。左J5的停滞未被现�
 2026-10-16实机十轴扫描及置零/保存命令已完成，独立回读十轴均约−0.000191 rad且失能。
 该轮API因单次查询缺反馈报错；本版随后增加1秒窗口内收齐反馈的逻辑，并通过离线验证，尚未用最终窗口版本重新驱动实机。
 断电保持尚未验收，记录见 [hardware_verification_20261016.json](hardware_verification_20261016.json)。
+
+
+### 0.1.15 可恢复超时与集成契约
+
+普通 guarded 控制默认 command_timeout=0.1s、feedback_timeout=0.2s；追加 feedback_hard_timeout=None 和 hold_timeout=0.2s。自动硬期限为 max(0.5, 2.5*feedback_timeout)。命令迟到进入带 COMMAND_TIMEOUT 告警的 HOLD，保留已提交静态位置及前馈，新命令可恢复；短时反馈过期告警并拒绝运动提交，总年龄达到硬期限才按失效保护。恢复反馈不会重放旧目标或重使能。
+
+`control_status()` 返回原生只读 ControlStatus 快照（state、warnings、faults、hold_request_sequence、hold_submitted_sequence）。ControlIssue 包含稳定 code、message 及适用时的 can_id/age_s/rx_sequence。告警不写入 fault；正常 HOLD 待确认用 HoldPendingError，反馈短时过期拒绝用 FeedbackStaleError。不要把这两类可恢复异常无条件交给关闭处理。
+
+非静态位置命令超时会使用最后有效实测位置、启动保持增益、零速度和有限前馈；显式 hold() 的前馈渐退语义不变。自动标定保持严格超时，维护写零条件不放宽。失能确认每 20ms 查询未确认轴，200ms 内仍无新鲜状态0则保留关闭未知。
+
+完整行为表、原因码、异常处理、集成端待办与回退见 [INTEGRATION_HANDOFF.md](../docs/INTEGRATION_HANDOFF.md)。本轮不修改集成项目；源码/发行一致不等于现场进程已经升级。新期限仅完成离线验证，抽动未定因，底层阻塞不提供硬实时停止保证。
