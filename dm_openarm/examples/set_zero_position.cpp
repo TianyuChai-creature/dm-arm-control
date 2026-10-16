@@ -108,10 +108,8 @@ int main(int argc, char** argv)
   {
     const auto config = dm_openarm::load_arm_config(config_path);
     dm_openarm::DmArm arm(config);
-    arm.enable();
-
-    arm.send_zero_mit_all();
-    std::this_thread::sleep_for(std::chrono::duration<double>(1.0 / dm_openarm::kDefaultControlHz));
+    arm.connect();
+    arm.probe_status(0.2);
     const auto before_states = arm.states();
 
     std::vector<std::uint16_t> target_ids;
@@ -131,21 +129,11 @@ int main(int argc, char** argv)
     {
       std::cout << "Target motor CAN ID: " << can_id << '\n';
       print_target_state("Before set zero:", before_states, can_id);
-      std::cout << "Sending set zero command\n";
-      arm.set_zero(can_id, persist);
-      std::cout << "Sent set zero command\n";
-      if(persist)
-      {
-        std::cout << "Saved zero position to flash\n";
-      }
-      else
-      {
-        std::cout << "Runtime-only zero position; not saved to flash\n";
-      }
     }
-
-    arm.send_zero_mit_all();
-    std::this_thread::sleep_for(std::chrono::duration<double>(1.0 / dm_openarm::kDefaultControlHz));
+    arm.set_zero_many(target_ids, persist);
+    std::cout << (persist ? "Zero and Flash save commands submitted; motors remain disabled\n"
+                          : "Runtime zero commands submitted; motors remain disabled\n");
+    arm.probe_status(0.2);
     const auto after_states = arm.states();
     for(const auto can_id : target_ids)
     {

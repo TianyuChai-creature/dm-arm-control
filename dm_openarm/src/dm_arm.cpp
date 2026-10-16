@@ -110,16 +110,21 @@ void DmArm::send_zero_mit_all()
 
 void DmArm::set_zero(std::uint16_t can_id, bool persist)
 {
-  std::lock_guard<std::mutex> lock(maintenance_mutex_);
-  if (loop_active_ || calibration_active_) throw std::runtime_error("set_zero requires a stopped MIT loop");
-  backend_.set_zero(can_id, persist);
+  set_zero_many({can_id}, persist);
 }
 
 void DmArm::set_zero_all(bool persist)
 {
+  std::vector<std::uint16_t> can_ids;
+  for (const auto& motor : config_.motors) can_ids.push_back(motor.can_id);
+  set_zero_many(can_ids, persist);
+}
+
+void DmArm::set_zero_many(const std::vector<std::uint16_t>& can_ids, bool persist)
+{
   std::lock_guard<std::mutex> lock(maintenance_mutex_);
-  if (loop_active_ || calibration_active_) throw std::runtime_error("set_zero_all requires a stopped MIT loop");
-  backend_.set_zero_all(persist);
+  if (loop_active_ || calibration_active_) throw std::runtime_error("set_zero requires a stopped MIT loop");
+  backend_.set_zero_many(can_ids, persist);
 }
 
 void DmArm::set_loop_active(bool active, bool calibration)

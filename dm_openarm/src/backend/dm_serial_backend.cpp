@@ -290,104 +290,127 @@ void DmSerialBackend::validate_mit_all(const std::vector<MitCommand>& commands) 
 
 void DmSerialBackend::set_zero(std::uint16_t can_id, bool persist)
 {
-  std::lock_guard<std::mutex> lock(mutex_);
-  set_zero_locked(can_id, persist, true);
-}
-
-void DmSerialBackend::set_zero_locked(std::uint16_t can_id, bool persist, bool verify)
-{
-  if(!control_)
-  {
-    throw std::runtime_error("DmSerialBackend is not connected");
-  }
-
-  if (std::none_of(config_.motors.begin(), config_.motors.end(),
-                   [can_id](const auto& m) { return m.can_id == can_id; }))
-    throw std::invalid_argument("motor is outside this owner's scope");
-  const auto motor = control_->getMotor(can_id);
-  if(!motor)
-  {
-    throw std::runtime_error("motor CAN ID is not registered");
-  }
-  if (maintenance_unknown_ || shutdown_unknown_)
-    throw std::runtime_error("set_zero blocked while motor state is unknown");
-  if(persist && verify) verify_set_zero_ready(can_id);
-  try {
-    control_->set_zero_position(*motor);
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    if(persist) {
-    // save_motor_param disables only the target. A passively connected owner
-    // must stay passive; do not energize every motor on this side.
-    const bool restore_target = enabled_;
-    control_->save_motor_param(*motor);
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    if (restore_target) {
-      const auto target_index = static_cast<std::size_t>(std::distance(config_.motors.begin(),
-        std::find_if(config_.motors.begin(), config_.motors.end(),
-          [can_id](const auto& m) { return m.can_id == can_id; })));
-      enable_baseline_[target_index] = control_->getMotorFeedback(can_id).rx_sequence;
-      control_->enable_motor(*motor);
-      const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
-      bool confirmed = false;
-      do {
-        const auto f = control_->getMotorFeedback(can_id);
-        confirmed = f.rx_sequence > enable_baseline_[target_index] &&
-                    f.last_rx_age_s <= 0.2 && f.error_code == 1;
-        if (confirmed) break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(2));
-      } while (std::chrono::steady_clock::now() < deadline);
-      if (!confirmed) throw std::runtime_error("set_zero: target re-enable status unconfirmed");
-    }
-    }
-  } catch (const std::exception& e) {
-    maintenance_unknown_ = true;
-    throw std::runtime_error("set_zero failed at CAN ID=" + std::to_string(can_id) +
-      "; coordinate/state unknown: " + e.what());
-  }
+  set_zero_many({can_id}, persist);
 }
 
 void DmSerialBackend::set_zero_all(bool persist)
 {
+  std::vector<std::uint16_t> can_ids;
+  for (const auto& motor : config_.motors) can_ids.push_back(motor.can_id);
+  set_zero_many(can_ids, persist);
+}
+
+void DmSerialBackend::set_zero_many(const std::vector<std::uint16_t>& can_ids, bool persist)
+{
   std::lock_guard<std::mutex> lock(mutex_);
   if (!control_) throw std::runtime_error("USB bus is not connected");
-  if (persist) {
-    // Preflight all motors before changing any Flash coordinate zero.
-    for (const auto& motor : config_.motors) verify_set_zero_ready(motor.can_id);
+  if (maintenance_unknown_ || shutdown_unknown_)
+    throw std::runtime_error("set_zero blocked while motor state is unknown");
+  if (enabled_) throw std::runtime_error("set_zero requires disabled motors");
+  if (can_ids.empty()) throw std::invalid_argument("set_zero target list must not be empty");
+  std::set<std::uint16_t> selected;
+  for (const auto can_id : can_ids) {
+    if (std::none_of(config_.motors.begin(), config_.motors.end(),
+                    [can_id](const auto& m) { return m.can_id == can_id; }))
+      throw std::invalid_argument("motor is outside this owner's scope");
+    if (!selected.insert(can_id).second)
+      throw std::invalid_argument("duplicate set_zero CAN ID");
   }
+
+  // Preflight the complete selection for both runtime and persistent zeros.
+  verify_set_zero_ready(can_ids);
   std::size_t completed = 0;
-  for(const auto& motor : config_.motors)
-  {
-    try { set_zero_locked(motor.can_id, persist, true); ++completed; }
+  std::ostringstream completed_ids;
+  bool attempted = false;
+  for (const auto can_id : can_ids) {
+    try {
+      // Earlier writes take time: establish a new stationary window for this axis.
+      verify_set_zero_ready({can_id});
+      attempted = true; // Even a failed send may have reached the device.
+      const auto motor = control_->getMotor(can_id);
+      control_->set_zero_position(*motor);
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      if (persist) {
+        control_->save_motor_param(*motor);
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+      }
+      if (completed > 0) completed_ids << ',';
+      completed_ids << can_id;
+      ++completed;
+    }
     catch (const std::exception& e) {
-      if (completed > 0) maintenance_unknown_ = true;
-      throw std::runtime_error("set_zero_all failed at CAN ID=" + std::to_string(motor.can_id) +
-                               "; prior motors may already be changed: " + e.what());
+      if (attempted) maintenance_unknown_ = true;
+      throw std::runtime_error("set_zero failed at CAN ID=" + std::to_string(can_id) +
+        "; completed=" + std::to_string(completed) +
+        "; completed IDs=[" + completed_ids.str() + "]" +
+        (attempted ? "; coordinate/state unknown: " : "; no coordinates changed: ") + e.what());
+    }
+    catch (...) {
+      if (attempted) maintenance_unknown_ = true;
+      throw;
     }
   }
 }
 
-void DmSerialBackend::verify_set_zero_ready(std::uint16_t can_id) const
+void DmSerialBackend::verify_set_zero_ready(const std::vector<std::uint16_t>& can_ids) const
 {
-  const auto target_index = std::distance(config_.motors.begin(),
-    std::find_if(config_.motors.begin(), config_.motors.end(),
-      [can_id](const auto& m) { return m.can_id == can_id; }));
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
-  const auto before = control_->getMotorFeedback(can_id).rx_sequence;
-  bool confirmed = false;
-  do {
-    const auto feedback = control_->getMotorFeedback(can_id);
-    confirmed = enabled_
-      ? static_cast<std::size_t>(target_index) < enable_baseline_.size() &&
-        feedback.rx_sequence > before &&
-        feedback.rx_sequence > enable_baseline_[target_index] &&
-        feedback.last_rx_age_s <= 0.2 && feedback.error_code == 1
-      : feedback.rx_sequence > before && feedback.last_rx_age_s <= 0.2 &&
-        feedback.error_code == 0;
-    if (confirmed) break;
+  using clock = std::chrono::steady_clock;
+  struct Observation {
+    std::uint64_t sequence;
+    unsigned samples{0};
+    clock::time_point first{}, last{};
+    double minimum{std::numeric_limits<double>::infinity()};
+    double maximum{-std::numeric_limits<double>::infinity()};
+  };
+  std::vector<Observation> observations;
+  for (const auto id : can_ids)
+    observations.push_back({control_->getMotorFeedback(id).rx_sequence});
+  const auto deadline = clock::now() + std::chrono::seconds(1);
+  auto next_query = clock::now();
+  std::uint16_t missing = can_ids.front();
+  while (clock::now() < deadline) {
+    bool all_ready = true;
+    for (std::size_t i = 0; i < can_ids.size(); ++i) {
+      const auto id = can_ids[i];
+      auto& observed = observations[i];
+      const auto f = control_->getMotorFeedback(id);
+      if (f.last_rx_age_s > 0.2) {
+        observed.samples = 0;
+        observed.minimum = std::numeric_limits<double>::infinity();
+        observed.maximum = -std::numeric_limits<double>::infinity();
+      }
+      if (f.rx_sequence > observed.sequence && f.last_rx_age_s <= 0.2) {
+        observed.sequence = f.rx_sequence;
+        if (f.error_code != 0 || !std::isfinite(f.position) ||
+            !std::isfinite(f.velocity) || !std::isfinite(f.torque) || std::abs(f.velocity) > 0.05)
+          throw std::runtime_error("set_zero requires stationary status-0 feedback: CAN ID=" + std::to_string(id));
+        const auto received = clock::now() - std::chrono::duration_cast<clock::duration>(
+          std::chrono::duration<double>(f.last_rx_age_s));
+        observed.minimum = std::min(observed.minimum, static_cast<double>(f.position));
+        observed.maximum = std::max(observed.maximum, static_cast<double>(f.position));
+        if (observed.maximum - observed.minimum > 0.005)
+          throw std::runtime_error("set_zero position drift: CAN ID=" + std::to_string(id));
+        // Distinct frames in one USB reception batch do not prove stability.
+        if (observed.samples == 0 || received - observed.last >= std::chrono::milliseconds(20)) {
+          if (observed.samples++ == 0) observed.first = received;
+          observed.last = received;
+        }
+      }
+      const bool ready = f.last_rx_age_s <= 0.2 && observed.samples >= 3 &&
+        observed.last - observed.first >= std::chrono::milliseconds(300);
+      if (!ready) {
+        if (all_ready) missing = id;
+        all_ready = false;
+      }
+    }
+    if (all_ready) return;
+    if (clock::now() >= next_query) {
+      for (const auto id : can_ids) control_->refresh_motor_status(*control_->getMotor(id));
+      next_query = clock::now() + std::chrono::milliseconds(50);
+    }
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
-  } while (std::chrono::steady_clock::now() < deadline);
-  if (!confirmed)
-    throw std::runtime_error("set_zero: prior state unconfirmed for CAN ID=" + std::to_string(can_id));
+  }
+  throw std::runtime_error("set_zero stationary feedback timeout: CAN ID=" + std::to_string(missing));
 }
 
 std::vector<MotorState> DmSerialBackend::states() const

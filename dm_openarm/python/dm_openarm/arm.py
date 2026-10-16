@@ -95,6 +95,7 @@ class Arm:
             detail = f"shutdown unknown: {cause}"
             if loop_error is not None:
                 detail += f"; loop stop failed: {loop_error}"
+            self._loop._shutdown_failed(detail)
             raise RuntimeError(detail) from cause
         if loop_error is not None:
             raise loop_error
@@ -136,14 +137,19 @@ class Arm:
         return self._arm.states()
 
     def set_zero(self, can_id: int, persist: bool = True) -> None:
+        """Zero a stationary disabled axis; persist only controls Flash saving."""
         if self._loop.running():
             raise RuntimeError("set_zero requires a stopped MIT loop")
         self._arm.set_zero(can_id, persist)
 
     def set_zero_all(self, persist: bool = True) -> None:
+        """Preflight all selected axes, then zero them in one native operation."""
         if self._loop.running():
             raise RuntimeError("set_zero_all requires a stopped MIT loop")
         self._arm.set_zero_all(persist)
+
+    def _set_zero_many(self, can_ids, persist: bool = True) -> None:
+        self._arm._set_zero_many(can_ids, persist)
 
     def calibrate_zero(self, *, kp=None, kd=None, gains=None):
         """Scan both arms, park at measured zeros, then persist all ten axes.
@@ -230,8 +236,14 @@ class Arm:
         dq: float = 0.0,
         tau: float = 0.0,
     ) -> None:
-        """Bus-level MIT (any can_id). Prefer ``arm.left.mit`` / ``arm.right.mit``."""
+        """Merge into this Arm's command table and renew its shared timeout.
+
+        One control task owns the whole table; Limb views have no independent
+        timeout. Use separate side-selected Arm objects for independent tasks.
+        """
         if isinstance(target, dict):
+            if not target:
+                raise ValueError("MIT update must not be empty")
             # Keep the Python ID check; merge with the current table under the native lock.
             ids = [int(m.can_id) for m in self._config.motors]
             if any(int(cid) not in ids for cid in target):

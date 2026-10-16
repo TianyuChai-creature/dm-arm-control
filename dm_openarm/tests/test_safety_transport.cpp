@@ -46,6 +46,8 @@ static unsigned calibration_save_commands=0;
 static int drop_final_angle_queries=0;
 static bool final_angle_outside_zero=false;
 static std::array<double,10> plant_velocity{}, plant_torque{};
+static bool zero_query_drift=false;
+static int missing_motion_id=-1, failed_zero_id=-1;
 extern "C" {
 void dmcan_context_create(dmcan_context** p){*p=&context;}
 void dmcan_context_destroy(dmcan_context*){}
@@ -78,11 +80,17 @@ bool dmcan_device_send_can(dmcan_device_handle*,uint8_t,uint32_t id,bool,bool,bo
   if(op==0 && static_cast<int>(id)==failed_mit_id.load())return false;
   if(op==0 && id==2 && fail_hold_send && (((d[3]&15)<<8)|d[4])==204)return false;
   if(static_cast<int>(op)==failed_op)return false;
+  if(op==0xfe && static_cast<int>(id)==failed_zero_id)return false;
   if (calibration_transport && callback) {
     if (id==0x7ff && op==0xcc && emit_status) {
-      if (calibration_save_commands==2 && d[0]==2 && drop_final_angle_queries!=0) {
+      if (d[0]==missing_motion_id) {
+        // The query was sent, but this axis has no new motion feedback.
+      } else if (calibration_save_commands==2 && d[0]==2 && drop_final_angle_queries!=0) {
         if (drop_final_angle_queries>0) --drop_final_angle_queries;
-      } else inject_status(d[0],0);
+      } else {
+        if (zero_query_drift && d[0]==1) register_positions[1]+=.003f;
+        inject_status(d[0],0);
+      }
     }
     if (id==2 && op==0xfd && stale_save_ack_on_fd) {
       usb_rx_frame old{};old.head.can_id=2;old.head.dlc=4;old.payload[0]=2;old.payload[2]=0xaa;old.payload[3]=1;
@@ -187,6 +195,7 @@ static void test_guarded_updates(){
   assert(loop.accepted_sequence()==2);
   await_loop([&]{return loop.sent_sequence()==2;});
   for(const auto& bad:std::vector<std::map<std::uint16_t,MitCommand>>{
+      {},
       {{1,MitCommand{10,.5,.7,0,0}},{9,MitCommand{}}},
       {{1,MitCommand{10,.5,.7,0,0}},{2,MitCommand{10,.5,99,0,0}}}}){
     bool rejected=false;try{loop.set_commands(bad);}catch(const std::exception&){rejected=true;}
@@ -465,7 +474,140 @@ static void test_idle_controller_cannot_release_another_loop() {
   owner.stop();arm.disconnect();mit_feedback=false;frames.clear();
 }
 
+static void test_zero_requires_stationary_disabled_feedback() {
+  using namespace dm_openarm;
+  auto c=config();
+  for(auto& m:c.motors)m.model=MotorModel::DM4340P;
+  for (bool persist : {false,true}) {
+    for (int scenario=0;scenario<5;++scenario) {
+      prepare_calibration_transport(c);
+      backend::DmSerialBackend b(c);b.connect();
+      if(scenario==0)emit_status=false; // No feedback.
+      if(scenario==1){inject_status(1,0);emit_status=false;} // Cached once.
+      if(scenario==2)plant_velocity[1]=1;
+      if(scenario==3)zero_query_drift=true;
+      if(scenario==4)b.enable();
+      bool rejected=false;
+      try{b.set_zero(1,persist);}catch(const std::runtime_error&){rejected=true;}
+      assert(rejected && count(1,0xfe)==0 && count(0x7ff,0xaa)==0);
+      emit_status=true;zero_query_drift=false;plant_velocity[1]=0;
+      b.disable();
+      // A precondition failure must leave the owner usable after recovery.
+      b.set_zero_many({1},persist);
+      assert(count(1,0xfe)==1 && count(2,0xfe)==0);
+      assert(count(1,0xfc)==(scenario==4 ? 5u : 0u));
+      assert(count(0x7ff,0xaa)==(persist ? 1u : 0u));
+      b.disconnect();
+    }
+  }
+  calibration_transport=false;frames.clear();
+}
+
+static void test_zero_batch_scope_preflight_and_partial_failure() {
+  using namespace dm_openarm;
+  auto c=config();for(auto& m:c.motors)m.model=MotorModel::DM4340P;
+  for(bool persist : {false,true}) {
+    prepare_calibration_transport(c);
+    {
+      backend::DmSerialBackend b(c);b.connect();
+      for(const auto& ids:std::vector<std::vector<std::uint16_t>>{{},{1,1},{1,9}}) {
+        bool rejected=false;try{b.set_zero_many(ids,persist);}catch(const std::invalid_argument&){rejected=true;}
+        assert(rejected && frames.empty());
+      }
+      missing_motion_id=2;
+      bool rejected=false;try{b.set_zero_many({1,2},persist);}catch(const std::runtime_error&){rejected=true;}
+      assert(rejected && count(1,0xfe)==0 && count(2,0xfe)==0);
+      missing_motion_id=-1;b.disconnect();
+    }
+    c.device_index=persist ? 8 : 7;
+    prepare_calibration_transport(c);
+    {
+      backend::DmSerialBackend b(c);b.connect();failed_zero_id=2;
+      bool failed=false;try{b.set_zero_many({1,2},persist);}catch(const std::runtime_error& e){
+        const std::string message=e.what();
+        failed=message.find("CAN ID=2")!=std::string::npos && message.find("completed=1")!=std::string::npos &&
+          message.find("completed IDs=[1]")!=std::string::npos;
+      }
+      assert(failed && count(1,0xfe)==1 && count(2,0xfe)==1);
+      failed_zero_id=-1;
+      bool blocked=false;try{b.send_zero_mit_all();}catch(const std::runtime_error&){blocked=true;}
+      assert(blocked);
+      blocked=false;try{b.disconnect();}catch(const std::runtime_error&){blocked=true;}
+      assert(blocked);
+    }
+    c.device_index=0;
+  }
+  calibration_transport=false;frames.clear();
+}
+
+static void test_stop_state_and_restart_baseline() {
+  using namespace dm_openarm;
+  auto c=config();for(auto& m:c.motors)m.model=MotorModel::DM4340P;
+  prepare_calibration_transport(c);mit_feedback=true;
+  DmArm arm(c);MitLoopController loop(arm);
+  const std::vector<MitCommand> gains(2,MitCommand{25,1,0,0,0});
+  loop.enable_seeded(gains,250,1,.5);
+  loop.set_all_commands(std::vector<MitCommand>(2,MitCommand{10,.5,.8,0,0}));
+  await_loop([&]{return loop.sent_sequence()==1;});
+  loop.stop();loop.stop();
+  assert(!loop.running() && loop.safety_state()=="DISABLED" && loop.fault().empty());
+  for(const auto& command:loop.commands())assert(command.kp==0 && command.q==0);
+  bool invalid=false;
+  try{loop.start_seeded(gains,0,1,.5);}catch(const std::invalid_argument&){invalid=true;}
+  assert(invalid && loop.safety_state()=="DISABLED");
+  arm.enable();loop.start(250);
+  await_loop([&]{return loop.timing_stats().tx_cycles>=2;});
+  for(const auto& command:loop.sent_commands())assert(command.kp==0 && command.q==0);
+  bool rejected=false;try{loop.hold();}catch(const std::runtime_error&){rejected=true;}
+  assert(rejected); // A legacy start never inherits the old guard.
+  loop.stop();
+  register_positions[1]=.6f;register_positions[2]=-.4f;
+  loop.enable_seeded(gains,250,1,.5);
+  assert(std::abs(loop.sent_commands()[0].q-.6)<.001 && std::abs(loop.sent_commands()[1].q+.4)<.001);
+  loop.stop();arm.disconnect();
+  calibration_transport=false;mit_feedback=false;frames.clear();
+}
+
+static void test_independent_owner_timeouts_and_empty_updates() {
+  using namespace dm_openarm;
+  auto left_config=config(),right_config=config();
+  left_config.bus_motors=right_config.bus_motors=left_config.motors;
+  left_config.motors={left_config.bus_motors[0]};right_config.motors={right_config.bus_motors[1]};
+  mit_feedback=true;
+  DmArm left(left_config),right(right_config);
+  MitLoopController left_loop(left),right_loop(right);
+  const std::vector<MitCommand> gains(1,MitCommand{25,1,0,0,0});
+  left_loop.enable_seeded(gains,250,.15,.5);right_loop.enable_seeded(gains,250,.15,.5);
+  const MitCommand target{10,.5,.4,0,0};
+  right_loop.set_command(2,target);
+  const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(2);
+  while(right_loop.safety_state()=="ACTIVE" && std::chrono::steady_clock::now()<deadline) {
+    left_loop.set_command(1,target); // Identical valid targets are valid renewals.
+    const auto sequence=right_loop.accepted_sequence();
+    for(bool all : {false,true}) {
+      bool rejected=false;
+      try{if(all)right_loop.set_all_commands({});else right_loop.set_commands({});}
+      catch(const std::invalid_argument&){rejected=true;}
+      assert(rejected && right_loop.accepted_sequence()==sequence);
+    }
+    bool rejected=false;try{right_loop.set_command(2,MitCommand{10,.5,99,0,0});}
+    catch(const std::exception&){rejected=true;}
+    assert(rejected && right_loop.accepted_sequence()==sequence);
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  assert(right_loop.safety_state()=="FAULT_HOLD" && left_loop.safety_state()=="ACTIVE");
+  right_loop.stop();const auto fault=right_loop.fault();right_loop.stop();
+  assert(right_loop.safety_state()=="FAULT" && fault==right_loop.fault() && fault.find("command_timeout")!=std::string::npos);
+  bool rejected=false;try{right_loop.start(250);}catch(const std::runtime_error&){rejected=true;}
+  assert(rejected);
+  left_loop.stop();left.disconnect();right.disconnect();mit_feedback=false;frames.clear();
+}
+
 int main(){using namespace dm_openarm;
+  test_zero_requires_stationary_disabled_feedback();
+  test_zero_batch_scope_preflight_and_partial_failure();
+  test_stop_state_and_restart_baseline();
+  test_independent_owner_timeouts_and_empty_updates();
   test_idle_controller_cannot_release_another_loop();
   test_calibration_transport();
   test_final_angle_readback_window();
@@ -481,7 +623,7 @@ int main(){using namespace dm_openarm;
   {
     backend::DmSerialBackend b(config());b.connect();
     bool rejected=false;try{b.set_zero(1,true);}catch(const std::runtime_error&){rejected=true;}
-    assert(rejected && frames.empty());
+    assert(rejected && count(1,0xfe)==0 && count(0x7ff,0xaa)==0);
     std::atomic<bool> feeding{true};
     std::thread feeder([&]{while(feeding){inject_status(1,0);std::this_thread::sleep_for(std::chrono::milliseconds(1));}});
     b.set_zero(1,true);feeding=false;feeder.join();
@@ -492,7 +634,7 @@ int main(){using namespace dm_openarm;
     backend::DmSerialBackend b(config());b.connect();
     bool rejected=false;try{b.set_zero_all(true);}catch(const std::runtime_error& e){
       rejected=std::string(e.what()).find("CAN ID=1")!=std::string::npos;}
-    assert(rejected && frames.empty());
+    assert(rejected && count(1,0xfe)==0 && count(2,0xfe)==0 && count(0x7ff,0xaa)==0);
     std::atomic<bool> feeding{true};
     std::thread feeder([&]{while(feeding){inject_status(1,0);inject_status(2,0);
       std::this_thread::sleep_for(std::chrono::milliseconds(1));}});

@@ -71,7 +71,7 @@ public:
   }
   void accept(const std::vector<MitCommand>& commands, double now) {
     validate(commands);
-    if (enabled && (latched || state == "STARTING" || state == "FAULT"))
+    if (latched || (enabled && (state == "STARTING" || state == "FAULT")))
       throw std::runtime_error("MIT safety latched or not ready");
     updated = now; ++accepted_seq;
     preserve_command = false;

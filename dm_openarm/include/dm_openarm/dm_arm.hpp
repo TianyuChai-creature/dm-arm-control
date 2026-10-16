@@ -30,6 +30,7 @@ public:
   void send_zero_mit_all();
   void set_zero(std::uint16_t can_id, bool persist = true);
   void set_zero_all(bool persist = true);
+  void set_zero_many(const std::vector<std::uint16_t>& can_ids, bool persist = true);
   std::vector<MotorState> states() const;
   std::vector<std::uint16_t> probe_status(double timeout_s);
 

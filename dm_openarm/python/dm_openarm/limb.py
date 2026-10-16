@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 
 
 class Limb:
-    """Control API scoped to one arm side (same methods as the old single-arm surface)."""
+    """Side-scoped view; command updates share the parent Arm's timeout."""
 
     def __init__(self, arm: "Arm", side: str, can_ids: Sequence[int], names: Sequence[str]):
         if side not in ("left", "right"):
@@ -74,5 +74,4 @@ class Limb:
         self._arm.set_zero(can_id, persist=persist)
 
     def set_zero_all(self, persist: bool = True) -> None:
-        for cid in self.can_ids:
-            self._arm.set_zero(cid, persist=persist)
+        self._arm._set_zero_many(self.can_ids, persist=persist)
