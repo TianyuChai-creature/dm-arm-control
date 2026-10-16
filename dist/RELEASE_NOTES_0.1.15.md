@@ -23,3 +23,5 @@
 集成端待办、原因码、默认期限、异常处理示例和回退步骤见 [对接文档](../docs/INTEGRATION_HANDOFF.md)，同文作为 Release 附件发布。
 
 Debug 原生回归和安装最终 CPython 3.13 wheel 后的 Python 回归、RECORD/安装内容、源码及构建工具链身份以 BUILD_MANIFEST.json 为准。构建和测试全程不操作实机；新期限与实际负载保持尚未实机验证。
+
+本次发行验证：Debug CTest **6/6**；安装最终 CPython 3.13 wheel 后 Python **77/77**。wheel RECORD、安装内容、源码输入和官方库哈希校验通过。
