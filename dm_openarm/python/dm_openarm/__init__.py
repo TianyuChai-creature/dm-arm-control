@@ -2,6 +2,10 @@ from . import _core
 from ._core import (
     ArmConfig,
     ControlMode,
+    ControlIssue,
+    ControlStatus,
+    FeedbackStaleError,
+    HoldPendingError,
     MitCommand,
     MotorConfig,
     MotorModel,
@@ -13,7 +17,7 @@ from .calibration import CalibrationError, CalibrationReport, JointZeroResult
 from .arm import Arm
 from .limb import Limb
 
-__version__ = "0.1.14"
+__version__ = "0.1.15"
 
 __all__ = [
     "Arm",
@@ -22,6 +26,10 @@ __all__ = [
     "JointZeroResult",
     "ArmConfig",
     "ControlMode",
+    "ControlIssue",
+    "ControlStatus",
+    "FeedbackStaleError",
+    "HoldPendingError",
     "Limb",
     "MitCommand",
     "MotorConfig",

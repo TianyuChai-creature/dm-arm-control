@@ -169,3 +169,74 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+def test_recoverable_status_api_is_exposed_and_forwarded():
+    from dm_openarm import ControlIssue, ControlStatus, HoldPendingError, FeedbackStaleError
+    assert ControlIssue is not None and ControlStatus is not None
+    assert issubclass(HoldPendingError, TimeoutError)
+    assert issubclass(FeedbackStaleError, RuntimeError)
+    arm = object.__new__(Arm)
+    arm._loop = MagicMock()
+    expected = object()
+    arm._loop.control_status.return_value = expected
+    assert arm.control_status() is expected
+    arm._loop.control_status.assert_called_once_with()
+
+
+def test_guarded_start_forwards_optional_timing_without_python_policy():
+    arm = object.__new__(Arm)
+    arm._loop = MagicMock()
+    gains = [object()]
+    for method in ('enable_seeded', 'start_seeded'):
+        params = inspect.signature(getattr(Arm, method)).parameters
+        assert params['feedback_hard_timeout'].default is None
+        assert params['hold_timeout'].default == .2
+        getattr(arm, method)(gains)
+        getattr(arm._loop, method).assert_called_once_with(gains, 250., .1, .2, None, .2)
+        getattr(arm._loop, method).reset_mock()
+        getattr(arm, method)(gains, hz=100, command_timeout=.15, feedback_timeout=.3,
+                             feedback_hard_timeout=.9, hold_timeout=.05)
+        getattr(arm._loop, method).assert_called_once_with(gains, 100, .15, .3, .9, .05)
+
+
+def test_control_status_is_an_independent_readonly_snapshot():
+    import pytest
+    device = _core.DmArm(_core.ArmConfig())
+    loop = _core.MitLoopController(device)
+    before = loop.control_status()
+    assert before.state == 'DISABLED' and before.warnings == [] and before.faults == []
+    loop._shutdown_failed('owner release unconfirmed')
+    after = loop.control_status()
+    assert before.state == 'DISABLED' and before.faults == []
+    assert after.state == 'SHUTDOWN_UNKNOWN' and after.warnings == []
+    issue = after.faults[0]
+    assert issue.code == 'SHUTDOWN_UNCONFIRMED' and issue.message == 'owner release unconfirmed'
+    assert issue.can_id is None and issue.age_s is None and issue.rx_sequence is None
+    with pytest.raises(AttributeError):
+        issue.code = 'changed'
+    with pytest.raises(AttributeError):
+        after.state = 'ACTIVE'
+    copied = after.faults
+    copied.clear()
+    assert len(loop.control_status().faults) == 1
+    assert after.hold_request_sequence == after.hold_submitted_sequence == 0
+
+
+def test_invalid_new_deadlines_are_rejected_before_usb():
+    import pytest
+    config = _core.ArmConfig()
+    motor = _core.MotorConfig()
+    motor.can_id, motor.mst_id = 1, 17
+    config.motors = [motor]
+    device = _core.DmArm(config)
+    loop = _core.MitLoopController(device)
+    gains = [_core.MitCommand(kp=20, kd=1)]
+    for hard in (0., .2, -.1, float('inf'), float('nan')):
+        with pytest.raises(ValueError, match='timing'):
+            loop.enable_seeded(gains, feedback_hard_timeout=hard)
+        assert not device.connected() and loop.control_status().state == 'DISABLED'
+    for wait in (0., -1., float('nan'), float('inf')):
+        with pytest.raises(ValueError, match='timing'):
+            loop.enable_seeded(gains, hold_timeout=wait)
+        assert not device.connected()

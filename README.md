@@ -34,12 +34,13 @@ python python_script/scan_motors_online.py
 python -m build --wheel --no-isolation --outdir dist dm_openarm
 ```
 
-当前版本 **0.1.14**，发布 wheel 适用于 **CPython 3.13 / Linux x86_64**。wheel、构建记录和安装说明位于 `dist/`；可追溯构建步骤见
+当前版本 **0.1.15**，发布 wheel 适用于 **CPython 3.13 / Linux x86_64**。wheel、构建记录和安装说明位于 `dist/`；可追溯构建步骤见
 [`dist/USAGE_GUIDE.md`](dist/USAGE_GUIDE.md#构建与来源记录)。guarded 启动默认 **250 Hz**，
 兼容裸入口默认 1000 Hz；最高支持 1000 Hz，频率均由运行时参数指定。
 
-0.1.14 修正只读在线查询：`0xCC` 查询按官方标准接收八字节状态反馈，失能或报警电机也可报告在线；不再等待四字节回显。
-兼容性变化、验证范围与升级说明见 [更新日志](dist/RELEASE_NOTES_0.1.14.md)。
+0.1.15 默认将命令迟到、短时反馈过期和 HOLD 待确认作为可恢复告警；持续反馈失效与硬故障仍执行保护。
+新增 `control_status()`、可恢复异常及失能后状态查询确认。完整行为及待集成端配合事项见
+[SDK 与集成端对接记录](docs/INTEGRATION_HANDOFF.md)，版本变化见 [更新日志](dist/RELEASE_NOTES_0.1.15.md)。
 
 ---
 
@@ -111,7 +112,7 @@ flowchart TB
 | `start_mit_loop(hz=1000, home=False)` | 兼容入口；新对象不会自动启用 CommandGuard |
 | `stop_mit_loop()` | 停环 |
 | `hold_command()` | 保持最后实际执行的命令，前馈不衰减 |
-| `hold(reset_fault=False)` | 实测位置保持；`reset_fault=True` 解除超时锁存 |
+| `hold(reset_fault=False)` | 实测位置保持；`reset_fault=True` 保留显式故障恢复；普通告警无需 reset |
 | `states()` | 全总线反馈（左后右） |
 | `safety_state` / `fault` | 原生保护状态与故障原因 |
 | `sent_commands()` | 实际下发的 MIT 快照 |

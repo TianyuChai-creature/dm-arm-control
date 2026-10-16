@@ -7,6 +7,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/map.h>
+#include <nanobind/stl/optional.h>
 #include <nanobind/stl/vector.h>
 
 #include <filesystem>
@@ -18,6 +19,21 @@ NB_MODULE(_core, m)
 {
   m.doc() = "dm_openarm Python bindings";
   m.attr("DEFAULT_CONTROL_HZ") = dm_openarm::kDefaultControlHz;
+
+  nb::exception<dm_openarm::HoldPendingError>(m,"HoldPendingError",PyExc_TimeoutError);
+  nb::exception<dm_openarm::FeedbackStaleError>(m,"FeedbackStaleError",PyExc_RuntimeError);
+  nb::class_<dm_openarm::ControlIssue>(m,"ControlIssue")
+    .def_ro("code",&dm_openarm::ControlIssue::code)
+    .def_ro("message",&dm_openarm::ControlIssue::message)
+    .def_ro("can_id",&dm_openarm::ControlIssue::can_id)
+    .def_ro("age_s",&dm_openarm::ControlIssue::age_s)
+    .def_ro("rx_sequence",&dm_openarm::ControlIssue::rx_sequence);
+  nb::class_<dm_openarm::ControlStatus>(m,"ControlStatus")
+    .def_ro("state",&dm_openarm::ControlStatus::state)
+    .def_ro("warnings",&dm_openarm::ControlStatus::warnings)
+    .def_ro("faults",&dm_openarm::ControlStatus::faults)
+    .def_ro("hold_request_sequence",&dm_openarm::ControlStatus::hold_request_sequence)
+    .def_ro("hold_submitted_sequence",&dm_openarm::ControlStatus::hold_submitted_sequence);
 
   nb::enum_<dm_openarm::MotorModel>(m, "MotorModel")
     .value("DM4310", dm_openarm::MotorModel::DM4310)
@@ -138,9 +154,11 @@ NB_MODULE(_core, m)
          nb::arg("hz") = dm_openarm::kDefaultControlHz)
     .def("enable_seeded", &dm_openarm::MitLoopController::enable_seeded,
          nb::arg("gains"), nb::arg("hz")=250.0, nb::arg("command_timeout")=0.1, nb::arg("feedback_timeout")=0.2,
+         nb::arg("feedback_hard_timeout")=nb::none(), nb::arg("hold_timeout")=0.2,
          nb::call_guard<nb::gil_scoped_release>())
     .def("start_seeded", &dm_openarm::MitLoopController::start_seeded,
          nb::arg("gains"), nb::arg("hz")=250.0, nb::arg("command_timeout")=0.1, nb::arg("feedback_timeout")=0.2,
+         nb::arg("feedback_hard_timeout")=nb::none(), nb::arg("hold_timeout")=0.2,
          nb::call_guard<nb::gil_scoped_release>())
     .def("hold", &dm_openarm::MitLoopController::hold, nb::arg("reset_fault")=false,
          nb::call_guard<nb::gil_scoped_release>())
@@ -148,6 +166,8 @@ NB_MODULE(_core, m)
          nb::call_guard<nb::gil_scoped_release>())
     .def("safety_state", &dm_openarm::MitLoopController::safety_state)
     .def("fault", &dm_openarm::MitLoopController::fault)
+    .def("control_status", &dm_openarm::MitLoopController::control_status,
+         nb::call_guard<nb::gil_scoped_release>())
     .def("accepted_sequence", &dm_openarm::MitLoopController::accepted_sequence)
     .def("sent_sequence", &dm_openarm::MitLoopController::sent_sequence)
     .def("stop", &dm_openarm::MitLoopController::stop, nb::call_guard<nb::gil_scoped_release>())

@@ -119,7 +119,10 @@ void DmSerialBackend::enable()
   try {
     for (const auto& m : config_.motors) {
       enable_baseline_.push_back(control_->getMotorFeedback(m.can_id).rx_sequence);
-      control_->enable_motor(*control_->getMotor(m.can_id));
+      try { control_->enable_motor(*control_->getMotor(m.can_id)); }
+      catch(const std::exception& e) {
+        throw ControlFailure({"TX_FAILED",e.what(),m.can_id});
+      }
     }
   } catch (...) { shutdown_unknown_ = true; throw; }
 }
@@ -136,12 +139,16 @@ void DmSerialBackend::disable()
       // whole batch; otherwise an earlier unsolicited status0 can qualify.
       before.push_back(control_->getMotorFeedback(m.can_id).rx_sequence);
       try { control_->disable_motor(*control_->getMotor(m.can_id)); }
-      catch (...) { if (!first) first = std::current_exception(); }
+      catch (const std::exception& e) {
+        if(!first) first=std::make_exception_ptr(ControlFailure({"SHUTDOWN_UNCONFIRMED",e.what(),m.can_id}));
+      }
+      catch (...) { if(!first) first=std::current_exception(); }
     }
     if (first) { shutdown_unknown_ = true; std::rethrow_exception(first); }
     // Vendor has no separate FC/FD ACK. A new, matching motion status 0 is
-    // required; some firmware may cease feedback after FD, then fail closed.
+    // required. Query axes that stop broadcasting after FD without enabling them.
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(200);
+    auto next_query = std::chrono::steady_clock::now();
     bool all_disabled = false;
     do {
       all_disabled = true;
@@ -151,11 +158,26 @@ void DmSerialBackend::disable()
                         f.error_code == 0;
       }
       if (all_disabled) break;
+      const auto now = std::chrono::steady_clock::now();
+      if(now >= deadline) break;
+      if (now >= next_query) {
+        for (std::size_t i=0; i<config_.motors.size(); ++i) {
+          const auto f=control_->getMotorFeedback(config_.motors[i].can_id);
+          if(f.rx_sequence>before[i] && f.last_rx_age_s<=0.2 && f.error_code==0) continue;
+          try { control_->refresh_motor_status(*control_->getMotor(config_.motors[i].can_id)); }
+          catch(const std::exception& e) {
+            shutdown_unknown_=true;
+            throw ControlFailure({"SHUTDOWN_UNCONFIRMED",e.what(),config_.motors[i].can_id,
+                                  f.last_rx_age_s,f.rx_sequence});
+          }
+        }
+        next_query=now+std::chrono::milliseconds(20);
+      }
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    } while (std::chrono::steady_clock::now() < deadline);
+    } while (true); // Inspect replies once more after the last scheduled query.
     if (!all_disabled) {
       shutdown_unknown_ = true;
-      throw std::runtime_error("disable status unconfirmed; motor state unknown");
+      throw ControlFailure({"SHUTDOWN_UNCONFIRMED","disable status unconfirmed; motor state unknown"});
     }
     enabled_ = false;
     disabled_confirmed_ = true;
@@ -255,9 +277,9 @@ void DmSerialBackend::send_mit_all(const std::vector<MitCommand>& commands)
         static_cast<float>(command.tau));
     } catch (const std::exception& e) {
       shutdown_unknown_ = true;
-      throw std::runtime_error("MIT batch send failed at CAN ID=" +
+      throw ControlFailure({"TX_FAILED","MIT batch send failed at CAN ID=" +
         std::to_string(config_.motors[i].can_id) + "; prior frames sent=" +
-        std::to_string(i) + "; motor state unknown: " + e.what());
+        std::to_string(i) + "; motor state unknown: " + e.what(),config_.motors[i].can_id});
     }
   }
 }

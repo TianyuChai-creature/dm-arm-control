@@ -3,6 +3,10 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <optional>
+#include <stdexcept>
+#include <string>
+#include <utility>
 #include <vector>
 
 namespace dm_openarm {
@@ -23,6 +27,35 @@ struct MitCommand {
   double q{0.0};
   double dq{0.0};
   double tau{0.0};
+};
+
+struct ControlIssue {
+  std::string code, message;
+  std::optional<std::uint16_t> can_id;
+  std::optional<double> age_s;
+  std::optional<std::uint64_t> rx_sequence;
+};
+
+struct ControlStatus {
+  std::string state;
+  std::vector<ControlIssue> warnings, faults;
+  std::uint64_t hold_request_sequence{0}, hold_submitted_sequence{0};
+};
+
+// Typed native causes survive cleanup; consumers never need to parse messages.
+class ControlFailure : public std::runtime_error {
+public:
+  explicit ControlFailure(ControlIssue cause)
+    : std::runtime_error(cause.message), issue(std::move(cause)) {}
+  ControlIssue issue;
+};
+class HoldPendingError : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
+class FeedbackStaleError : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
 };
 
 // Feedback status 0x1 means enabled, not a fault; preserve all other codes.

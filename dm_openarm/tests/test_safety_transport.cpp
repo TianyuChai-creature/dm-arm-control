@@ -16,6 +16,7 @@
 #include <vector>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 struct dmcan_context {};
 struct dmcan_device_handle {};
 static dmcan_context context;
@@ -207,10 +208,9 @@ static void test_guarded_updates(){
   await_loop([&]{return loop.commands()[1].tau==0;});
   loop.set_command(1,MitCommand{10,.5,.8,0,0});
   assert(loop.commands()[1].q==seeded[1].q && loop.commands()[1].kp==25 && loop.commands()[1].tau==0);
-  await_loop([&]{return loop.safety_state()=="FAULT_HOLD";});
-  bool rejected=false;try{loop.set_command(1,MitCommand{});}catch(const std::runtime_error&){rejected=true;}
-  assert(rejected);
-  loop.hold(true);loop.set_commands({{1,MitCommand{10,.5,.4,0,0}}});
+  await_loop([&]{return loop.safety_state()=="HOLD";});
+  assert(loop.fault().empty() && loop.control_status().warnings[0].code=="COMMAND_TIMEOUT");
+  loop.set_commands({{1,MitCommand{10,.5,.4,0,0}}});
   assert(loop.commands()[1].q==seeded[1].q && loop.commands()[1].kp==25);
   loop.stop();arm.disconnect();mit_feedback=false;frames.clear();
 }
@@ -245,16 +245,21 @@ static void test_hold_send_failure(bool shutdown_failure){
   loop.enable_seeded(std::vector<MitCommand>(2,MitCommand{25,1,0,0,0}),250,1,.5);
   loop.set_all_commands(std::vector<MitCommand>(2,MitCommand{10,.5,.9,0,0}));
   await_loop([&]{return loop.sent_sequence()==1;});
-  fail_hold_send=true;if(shutdown_failure)emit_status=false;
+  fail_hold_send=true;if(shutdown_failure){emit_status=false;failed_op=0xcc;}
   bool failed=false;try{loop.hold();}catch(const std::runtime_error&){failed=true;}
   assert(failed);
   try{loop.stop();}catch(const std::runtime_error&){}
   assert(loop.sent_commands()[0].q==.9 && loop.sent_commands()[1].q==.9);
   assert(loop.safety_state()==(shutdown_failure ? "SHUTDOWN_UNKNOWN" : "FAULT"));
   assert(count(1,0xfd)>=5 && count(2,0xfd)>=5);
+  const auto status=loop.control_status();
+  assert(status.faults[0].code=="TX_FAILED" && status.faults[0].can_id==2);
+  if(shutdown_failure) assert(std::any_of(status.faults.begin(),status.faults.end(),[](const auto& issue){
+    return issue.code=="SHUTDOWN_UNCONFIRMED" && issue.can_id==1 && issue.rx_sequence.has_value();
+  }));
   bool rejected=false;try{loop.hold(true);}catch(const std::runtime_error&){rejected=true;}
   assert(rejected);
-  fail_hold_send=false;emit_status=true;arm.disable();arm.disconnect();
+  fail_hold_send=false;failed_op=-1;emit_status=true;arm.disable();arm.disconnect();
   mit_feedback=false;frames.clear();
 }
 static void test_startup_send_failure(){
@@ -279,18 +284,31 @@ static void test_pending_updates_and_confirmation_timeout(){
   }
   mit_feedback=true;
   DmArm arm(config());MitLoopController loop(arm);
-  loop.enable_seeded(std::vector<MitCommand>(2,MitCommand{25,1,0,0,0}),250,1,.1);
+  loop.enable_seeded(std::vector<MitCommand>(2,MitCommand{25,1,0,0,0}),250,1,.5,std::nullopt,.03);
   loop.set_all_commands(std::vector<MitCommand>(2,MitCommand{10,.5,.9,0,0}));
   await_loop([&]{return loop.sent_sequence()==1;});
   block_send(2,204);
   auto held=std::async(std::launch::async,[&]{loop.hold();});
   wait_blocked();
-  assert(held.wait_for(std::chrono::milliseconds(150))==std::future_status::timeout);
+  assert(held.wait_for(std::chrono::milliseconds(150))==std::future_status::ready);
+  bool pending=false;try{held.get();}catch(const HoldPendingError&){pending=true;}
+  assert(pending && loop.running() && loop.fault().empty());
+  const auto status=loop.control_status();
+  assert(status.hold_request_sequence==status.hold_submitted_sequence+1);
+  assert(status.warnings.size()==1 && status.warnings[0].code=="HOLD_PENDING");
+  for(const auto& operation:std::vector<std::function<void()>>{
+      [&]{loop.hold();},[&]{loop.hold_command();},
+      [&]{loop.set_command(1,MitCommand{10,.5,.4,0,0});}}) {
+    bool rejected=false;try{operation();}catch(const HoldPendingError&){rejected=true;}assert(rejected);
+    assert(loop.control_status().hold_request_sequence==status.hold_request_sequence);
+  }
+  assert(loop.accepted_sequence()==1 && count(1,0xfd)==0 && count(2,0xfd)==0);
   release_send();
-  bool failed=false;try{held.get();}catch(const std::runtime_error& e){
-    failed=std::string(e.what()).find("timeout")!=std::string::npos;}
-  assert(failed && loop.safety_state()=="FAULT" && loop.sent_commands()[0].q==.9);
-  arm.disconnect();mit_feedback=false;frames.clear();
+  await_loop([&]{return loop.control_status().hold_submitted_sequence==status.hold_request_sequence;});
+  assert(loop.running() && loop.safety_state()=="HOLD" && loop.fault().empty());
+  assert(loop.control_status().warnings.empty() && loop.sent_commands()[0].q!=.9);
+  assert(count(1,0xfd)==0 && count(2,0xfd)==0);
+  loop.stop();arm.disconnect();mit_feedback=false;frames.clear();
 }
 static void test_single_limb_batch(){
   using namespace dm_openarm;
@@ -592,11 +610,13 @@ static void test_independent_owner_timeouts_and_empty_updates() {
     assert(rejected && right_loop.accepted_sequence()==sequence);
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
   }
-  assert(right_loop.safety_state()=="FAULT_HOLD" && left_loop.safety_state()=="ACTIVE");
-  right_loop.stop();const auto fault=right_loop.fault();right_loop.stop();
-  assert(right_loop.safety_state()=="FAULT" && fault==right_loop.fault() && fault.find("command_timeout")!=std::string::npos);
-  bool rejected=false;try{right_loop.start(250);}catch(const std::runtime_error&){rejected=true;}
-  assert(rejected);
+  assert(right_loop.safety_state()=="HOLD" && left_loop.safety_state()=="ACTIVE");
+  assert(right_loop.fault().empty() && right_loop.control_status().warnings[0].code=="COMMAND_TIMEOUT");
+  assert(count(2,0xfd)==0);
+  right_loop.set_command(2,target);
+  assert(right_loop.safety_state()=="ACTIVE" && right_loop.control_status().warnings.empty());
+  right_loop.stop();right_loop.stop();
+  assert(right_loop.safety_state()=="DISABLED" && right_loop.fault().empty());
   left_loop.stop();left.disconnect();right.disconnect();mit_feedback=false;frames.clear();
 }
 
@@ -662,8 +682,107 @@ static void test_status_probe() {
   on_probe={};b.disconnect();frames.clear();
 }
 
+static void wait_condition(const std::function<bool()>& done) {
+  const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(3);
+  while(!done() && std::chrono::steady_clock::now()<deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  assert(done());
+}
+static void test_feedback_grace_recovery_and_hard_failure() {
+  using namespace dm_openarm;
+  for(bool recover:{true,false}) {
+    mit_feedback=true;
+    DmArm arm(config());MitLoopController loop(arm);
+    loop.enable_seeded(std::vector<MitCommand>(2,MitCommand{25,1,0,0,0}),250,10,.04,.25);
+    loop.set_all_commands({MitCommand{10,.5,.7,0,.3},MitCommand{10,.5,.8,0,.4}});
+    await_loop([&]{return loop.sent_sequence()==1;});
+    mit_feedback=false;
+    wait_condition([&]{return !loop.control_status().warnings.empty();});
+    const auto paused=loop.control_status();
+    assert(paused.state=="HOLD" && paused.warnings[0].code=="FEEDBACK_STALE" && paused.faults.empty());
+    assert(loop.sent_commands()[0].q==.7 && loop.sent_commands()[0].tau==.3);
+    for(bool all:{false,true}) {
+      bool stale=false;try{
+        if(all)loop.set_all_commands({MitCommand{10,.5,.9,0,0},MitCommand{10,.5,1,0,0}});
+        else loop.set_command(1,MitCommand{10,.5,.9,0,0});
+      }catch(const FeedbackStaleError&){stale=true;}
+      assert(stale && loop.accepted_sequence()==1);
+    }
+    assert(count(1,0xfd)==0 && count(2,0xfd)==0);
+    if(recover) {
+      mit_feedback=true;inject_status(1,1);inject_status(2,1);
+      wait_condition([&]{return loop.control_status().warnings.empty();});
+      assert(loop.safety_state()=="HOLD" && loop.commands()[0].q==.7 && loop.commands()[1].q==.8);
+      loop.set_command(1,MitCommand{10,.5,.6,0,.2});
+      await_loop([&]{return loop.sent_sequence()==2;});
+      assert(loop.commands()[1].q==.8 && loop.commands()[1].tau==.4);
+      assert(count(1,0xfc)==5 && count(2,0xfc)==5 && count(1,0xfd)==0);
+      loop.stop();
+    } else {
+      wait_condition([&]{return loop.safety_state()=="FAULT" && !loop.running() &&
+                                  count(1,0xfd)>=5 && count(2,0xfd)>=5;});
+      assert(!loop.running() && loop.control_status().faults[0].code=="FEEDBACK_LOST");
+      assert(count(1,0xfd)>=5 && count(2,0xfd)>=5);
+      bool failed=false;try{loop.stop();}catch(const std::runtime_error&){failed=true;}assert(failed);
+    }
+    arm.disconnect();mit_feedback=false;frames.clear();
+  }
+}
+static void test_disable_status_queries() {
+  using namespace dm_openarm;
+  for(int scenario=0;scenario<5;++scenario) {
+    backend::DmSerialBackend b(config());emit_status=true;b.connect();b.enable();
+    if(scenario==2) {inject_status(1,0);inject_status(2,0);} // old status0 cannot confirm FD
+    emit_status=false;
+    on_probe=[&](unsigned id){
+      if(scenario==0)inject_status(id,0);
+      if(scenario==1)inject_status(id,1);
+      if(scenario==3)inject_status(3,0); // unrelated identity
+    };
+    if(scenario==4)failed_op=0xcc;
+    bool failed=false;try{b.disable();}catch(const ControlFailure& e){
+      failed=e.issue.code=="SHUTDOWN_UNCONFIRMED";}
+    assert(failed==(scenario!=0));
+    assert(count(0x7ff,0xcc)>0 && count(0x7ff,0xcc)<=22);
+    assert(count(1,0xfc)==5 && count(2,0xfc)==5);
+    if(scenario!=0) {
+      bool blocked=false;try{b.send_mit_all({MitCommand{},MitCommand{}});}catch(const std::runtime_error&){blocked=true;}
+      assert(blocked);
+    }
+    on_probe={};failed_op=-1;emit_status=true;b.disable();b.disconnect();frames.clear();
+  }
+}
+static void test_runtime_fault_codes_and_pre_enable_validation() {
+  using namespace dm_openarm;
+  for(int mode=0;mode<3;++mode) {
+    DmArm arm(config());MitLoopController loop(arm);
+    mit_feedback=true;
+    loop.enable_seeded(std::vector<MitCommand>(2,MitCommand{25,1,0,0,0}),250,10,.5);
+    if(mode==2)failed_mit_id=2;
+    else {mit_feedback=false;inject_status(1,mode==0 ? 8 : 0);}
+    wait_condition([&]{return loop.safety_state()=="FAULT" && !loop.running() &&
+                                  count(1,0xfd)>=5 && count(2,0xfd)>=5;});
+    const auto status=loop.control_status();
+    assert(status.faults[0].code==(mode==0 ? "MOTOR_FAULT" : mode==1 ? "MOTOR_DISABLED" : "TX_FAILED"));
+    assert(status.faults[0].can_id==(mode==2 ? 2 : 1));
+    if(mode!=2)assert(status.faults[0].rx_sequence.has_value());
+    failed_mit_id=-1;
+    try{loop.stop();}catch(const std::runtime_error&){}
+    arm.disconnect();mit_feedback=false;frames.clear();
+  }
+  DmArm arm(config());MitLoopController loop(arm);
+  for(double hard:{0.,.2,-1.,std::numeric_limits<double>::infinity()}) {
+    bool invalid=false;try{loop.enable_seeded(std::vector<MitCommand>(2,MitCommand{25,1,0,0,0}),250,.1,.2,hard);}
+    catch(const std::invalid_argument&){invalid=true;}
+    assert(invalid && !arm.connected() && count(1,0xfc)==0);
+  }
+}
+
 int main(){using namespace dm_openarm;
   test_status_probe();
+  test_disable_status_queries();
+  test_feedback_grace_recovery_and_hard_failure();
+  test_runtime_fault_codes_and_pre_enable_validation();
   test_zero_requires_stationary_disabled_feedback();
   test_zero_batch_scope_preflight_and_partial_failure();
   test_stop_state_and_restart_baseline();
